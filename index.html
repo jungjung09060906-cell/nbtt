@@ -53,10 +53,13 @@
       // Global Settings
       const [apiKey, setApiKey] = useState(() => localStorage.getItem('risu_api_key') || '');
       const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
-      const [userPersona, setUserPersona] = useState(() => localStorage.getItem('risu_user_persona') || '친근한 대화 상대');
+      
+      // User Persona (Name & Description Split)
+      const [userName, setUserName] = useState(() => localStorage.getItem('risu_user_name') || 'User');
+      const [userPersona, setUserPersona] = useState(() => localStorage.getItem('risu_user_persona') || '친근하고 호기심 많은 대화 상대');
       const [fontSize, setFontSize] = useState(() => localStorage.getItem('risu_font_size') || 'text-sm');
       
-      // Risu AI Advanced Parameters
+      // Risu AI Parameters
       const [temp, setTemp] = useState(0.85);
       const [topP, setTopP] = useState(0.95);
       const [topK, setTopK] = useState(40);
@@ -77,7 +80,9 @@
         if (saved) return JSON.parse(saved);
         const initChar = DEFAULT_CHARACTERS[0];
         return {
-          [initChar.id]: [{ id: 'session-1', name: '기본 대화', messages: [{ id: 1, role: 'model', content: initChar.firstMessage }] }]
+          [initChar.id]: [
+            { id: 'session-1', name: '대화 1', messages: [{ id: 1, role: 'model', content: initChar.firstMessage }] }
+          ]
         };
       });
       const [activeSessionId, setActiveSessionId] = useState('session-1');
@@ -90,6 +95,7 @@
 
       // Storage sync
       useEffect(() => { localStorage.setItem('risu_api_key', apiKey); }, [apiKey]);
+      useEffect(() => { localStorage.setItem('risu_user_name', userName); }, [userName]);
       useEffect(() => { localStorage.setItem('risu_user_persona', userPersona); }, [userPersona]);
       useEffect(() => { localStorage.setItem('risu_font_size', fontSize); }, [fontSize]);
       useEffect(() => { localStorage.setItem('risu_characters', JSON.stringify(characters)); }, [characters]);
@@ -103,13 +109,13 @@
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, [currentSession.messages]);
 
-      // Handle Character Change
+      // Handle Character Select
       const handleSelectCharacter = (charId) => {
         setActiveCharId(charId);
         let sessions = chatSessions[charId];
         if (!sessions || sessions.length === 0) {
           const char = characters.find(c => c.id === charId);
-          const newSess = { id: `session-${Date.now()}`, name: '새 대화', messages: [{ id: 1, role: 'model', content: char?.firstMessage || '안녕하세요!' }] };
+          const newSess = { id: `session-${Date.now()}`, name: '대화 1', messages: [{ id: 1, role: 'model', content: char?.firstMessage || '안녕하세요!' }] };
           setChatSessions(prev => ({ ...prev, [charId]: [newSess] }));
           setActiveSessionId(newSess.id);
         } else {
@@ -132,21 +138,39 @@
         handleSelectCharacter(newChar.id);
       };
 
-      // Add New Chat Session
-      const handleNewSession = () => {
+      // Add New Session
+      const handleNewSession = (charId = activeCharId) => {
+        const targetChar = characters.find(c => c.id === charId) || activeChar;
+        const targetSessions = chatSessions[charId] || [];
         const newSess = {
           id: `session-${Date.now()}`,
-          name: `대화 ${activeCharSessions.length + 1}`,
-          messages: [{ id: Date.now(), role: 'model', content: activeChar.firstMessage }]
+          name: `대화 ${targetSessions.length + 1}`,
+          messages: [{ id: Date.now(), role: 'model', content: targetChar.firstMessage }]
         };
         setChatSessions(prev => ({
           ...prev,
-          [activeCharId]: [...(prev[activeCharId] || []), newSess]
+          [charId]: [...(prev[charId] || []), newSess]
         }));
         setActiveSessionId(newSess.id);
       };
 
-      // Clean Contents Generator (Prevent Model Turn Error)
+      // Delete Session
+      const handleDeleteSession = (charId, sessId) => {
+        const sessions = chatSessions[charId] || [];
+        if (sessions.length <= 1) {
+          alert('최소 1개의 대화방은 유지되어야 합니다.');
+          return;
+        }
+        if (confirm('이 대화 기록을 삭제하시겠습니까?')) {
+          const filtered = sessions.filter(s => s.id !== sessId);
+          setChatSessions(prev => ({ ...prev, [charId]: filtered }));
+          if (activeSessionId === sessId) {
+            setActiveSessionId(filtered[0].id);
+          }
+        }
+      };
+
+      // Clean Contents Generator (Model Turn Error Prevention)
       const buildCleanContents = (history, newUserMsg) => {
         const contents = [];
         const fullHistory = [...history, { role: 'user', content: newUserMsg }];
@@ -179,7 +203,6 @@
         const currentMsgs = currentSession.messages || [];
         const updatedMsgs = [...currentMsgs, { id: Date.now(), role: 'user', content: userMsg }];
 
-        // State update for user message
         setChatSessions(prev => ({
           ...prev,
           [activeCharId]: (prev[activeCharId] || []).map(s => s.id === activeSessionId ? { ...s, messages: updatedMsgs } : s)
@@ -190,14 +213,14 @@
 
         try {
           let targetModel = selectedModel;
+          const fullSystemPrompt = `[캐릭터 설정]\n${activeChar.systemPrompt}\n\n[유저 정보]\n이름: ${userName}\n페르소나: ${userPersona}`;
+
           let response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               contents: cleanContents,
-              systemInstruction: {
-                parts: [{ text: `[캐릭터 설정]\n${activeChar.systemPrompt}\n\n[유저 페르소나]\n${userPersona}` }]
-              },
+              systemInstruction: { parts: [{ text: fullSystemPrompt }] },
               generationConfig: {
                 temperature: temp,
                 topP: topP,
@@ -216,14 +239,14 @@
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 contents: cleanContents,
-                systemInstruction: { parts: [{ text: `[캐릭터 설정]\n${activeChar.systemPrompt}\n\n[유저 페르소나]\n${userPersona}` }] },
+                systemInstruction: { parts: [{ text: fullSystemPrompt }] },
                 generationConfig: { temperature: temp, topP: topP, topK: topK, presencePenalty: presencePenalty, frequencyPenalty: frequencyPenalty, maxOutputTokens: maxTokens }
               })
             });
           }
 
           const data = await response.json();
-          if (data.error) throw new Error(data.error.message || 'API 호출 에러');
+          if (data.error) throw new Error(data.error.message || 'API 오류');
 
           const replyText = data.candidates?.[0]?.content?.parts?.[0]?.text || '답변을 생성하지 못했습니다.';
           
@@ -241,7 +264,7 @@
 
       return (
         <div className="flex flex-col h-full max-w-xl mx-auto bg-zinc-950 border-x border-zinc-800/60 shadow-2xl">
-          {/* Top Navigation */}
+          {/* Top Header */}
           <header className="glass-header sticky top-0 z-20 flex items-center justify-between px-4 py-3 border-b border-zinc-800/80">
             <div className="flex items-center gap-2.5 overflow-hidden">
               <img src={activeChar?.avatar} className="w-9 h-9 rounded-full object-cover ring-2 ring-indigo-500/30 shrink-0" />
@@ -261,7 +284,7 @@
           {/* CHAT TAB */}
           {activeTab === 'chat' && (
             <div className="flex-1 flex flex-col justify-between overflow-hidden">
-              {/* Session Bar */}
+              {/* Quick Session Bar */}
               <div className="flex items-center gap-2 px-4 py-2 bg-zinc-900/50 border-b border-zinc-800/50 overflow-x-auto text-xs">
                 {activeCharSessions.map(s => (
                   <button 
@@ -272,10 +295,10 @@
                     {s.name}
                   </button>
                 ))}
-                <button onClick={handleNewSession} className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-bold shrink-0">+ 새 대화</button>
+                <button onClick={() => handleNewSession(activeCharId)} className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-bold shrink-0">+ 새 대화</button>
               </div>
 
-              {/* Chat Area */}
+              {/* Chat View */}
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
                 {(currentSession.messages || []).map((m) => (
                   <div key={m.id} className={`flex gap-2.5 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -291,7 +314,7 @@
                 <div ref={chatEndRef} />
               </div>
 
-              {/* Input Area */}
+              {/* Input */}
               <div className="p-3 border-t border-zinc-800/80 bg-zinc-950">
                 <div className="flex items-center gap-2">
                   <input 
@@ -326,7 +349,7 @@
                         <p className="text-xs text-zinc-400 truncate">{c.description}</p>
                       </div>
                     </div>
-                    <button onClick={() => { setActiveCharId(c.id); setActiveTab('char_edit'); }} className="ml-2 px-2.5 py-1 bg-zinc-800 text-zinc-300 rounded-lg text-xs font-semibold">수정</button>
+                    <button onClick={() => { setActiveCharId(c.id); setActiveTab('char_edit'); }} className="ml-2 px-2.5 py-1 bg-zinc-800 text-zinc-300 rounded-lg text-xs font-semibold">설정 / 편집</button>
                   </div>
                 ))}
               </div>
@@ -335,12 +358,13 @@
 
           {/* CHARACTER EDIT TAB */}
           {activeTab === 'char_edit' && (
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 space-y-5">
               <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
-                <h2 className="text-sm font-bold text-zinc-100">{activeChar?.name} 캐릭터 편집</h2>
+                <h2 className="text-sm font-bold text-zinc-100">{activeChar?.name} 설정 및 대화 기록</h2>
                 <button onClick={() => setActiveTab('char_list')} className="text-xs text-zinc-400">← 목록으로</button>
               </div>
 
+              {/* Character Details Form */}
               <div className="space-y-3 text-xs">
                 <div>
                   <label className="text-zinc-400 font-semibold block mb-1">캐릭터 이름</label>
@@ -355,17 +379,40 @@
                   <textarea value={activeChar?.firstMessage} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, firstMessage: e.target.value } : c))} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-2.5 text-sm text-zinc-100 h-20" />
                 </div>
                 <div>
-                  <label className="text-zinc-400 font-semibold block mb-1">시스템 프롬프트 (성격 및 가이드라인)</label>
-                  <textarea value={activeChar?.systemPrompt} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, systemPrompt: e.target.value } : c))} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-2.5 text-sm text-zinc-100 h-36" />
+                  <label className="text-zinc-400 font-semibold block mb-1">시스템 프롬프트 (성격/설정)</label>
+                  <textarea value={activeChar?.systemPrompt} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, systemPrompt: e.target.value } : c))} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-2.5 text-sm text-zinc-100 h-32" />
+                </div>
+              </div>
+
+              {/* Chat Sessions Category inside Character Settings */}
+              <div className="pt-3 border-t border-zinc-800 space-y-3">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-xs font-bold text-zinc-200">📂 이전 대화 목록 ({activeCharSessions.length})</h3>
+                  <button onClick={() => handleNewSession(activeCharId)} className="px-2.5 py-1 bg-indigo-600 text-white rounded-lg text-xs font-semibold">+ 새 대화 생성</button>
+                </div>
+                
+                <div className="space-y-2">
+                  {activeCharSessions.map(s => (
+                    <div key={s.id} className="flex items-center justify-between p-2.5 bg-zinc-900/60 border border-zinc-800/80 rounded-xl text-xs">
+                      <div className="flex items-center gap-2 cursor-pointer flex-1" onClick={() => { setActiveSessionId(s.id); setActiveTab('chat'); }}>
+                        <span className="text-indigo-400 font-semibold">{s.name}</span>
+                        <span className="text-[10px] text-zinc-500">({s.messages?.length || 0}개 메시지)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => { setActiveSessionId(s.id); setActiveTab('chat'); }} className="px-2 py-1 bg-zinc-800 text-zinc-300 rounded-md font-semibold">대화하기</button>
+                        <button onClick={() => handleDeleteSession(activeCharId, s.id)} className="px-2 py-1 bg-rose-950/60 text-rose-400 border border-rose-900/40 rounded-md font-semibold">삭제</button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
           )}
 
-          {/* SETTINGS TAB WITH SUB-TABS */}
+          {/* SETTINGS TAB */}
           {activeTab === 'settings' && (
             <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Settings Sub Navigation */}
+              {/* Settings Sub-Nav */}
               <div className="flex bg-zinc-900 border-b border-zinc-800 px-4 py-2 text-xs font-semibold gap-2">
                 <button onClick={() => setSettingsSubTab('ai')} className={`px-3 py-1.5 rounded-lg ${settingsSubTab === 'ai' ? 'bg-indigo-600 text-white' : 'text-zinc-400'}`}>API & 파라미터</button>
                 <button onClick={() => setSettingsSubTab('persona')} className={`px-3 py-1.5 rounded-lg ${settingsSubTab === 'persona' ? 'bg-indigo-600 text-white' : 'text-zinc-400'}`}>유저 페르소나</button>
@@ -392,7 +439,7 @@
                       <input type="range" min="0" max="2" step="0.05" value={temp} onChange={(e) => setTemp(parseFloat(e.target.value))} className="w-full accent-indigo-500" />
                     </div>
                     <div>
-                      <div className="flex justify-between mb-1"><span className="text-zinc-400">Top-P (핵 샘플링)</span><span className="text-indigo-400 font-mono">{topP}</span></div>
+                      <div className="flex justify-between mb-1"><span className="text-zinc-400">Top-P</span><span className="text-indigo-400 font-mono">{topP}</span></div>
                       <input type="range" min="0" max="1" step="0.05" value={topP} onChange={(e) => setTopP(parseFloat(e.target.value))} className="w-full accent-indigo-500" />
                     </div>
                     <div>
@@ -400,21 +447,27 @@
                       <input type="range" min="1" max="100" step="1" value={topK} onChange={(e) => setTopK(parseInt(e.target.value))} className="w-full accent-indigo-500" />
                     </div>
                     <div>
-                      <div className="flex justify-between mb-1"><span className="text-zinc-400">Presence Penalty (주제 다양성)</span><span className="text-indigo-400 font-mono">{presencePenalty}</span></div>
+                      <div className="flex justify-between mb-1"><span className="text-zinc-400">Presence Penalty</span><span className="text-indigo-400 font-mono">{presencePenalty}</span></div>
                       <input type="range" min="-2" max="2" step="0.1" value={presencePenalty} onChange={(e) => setPresencePenalty(parseFloat(e.target.value))} className="w-full accent-indigo-500" />
                     </div>
                     <div>
-                      <div className="flex justify-between mb-1"><span className="text-zinc-400">Frequency Penalty (단어 반복 억제)</span><span className="text-indigo-400 font-mono">{frequencyPenalty}</span></div>
+                      <div className="flex justify-between mb-1"><span className="text-zinc-400">Frequency Penalty</span><span className="text-indigo-400 font-mono">{frequencyPenalty}</span></div>
                       <input type="range" min="-2" max="2" step="0.1" value={frequencyPenalty} onChange={(e) => setFrequencyPenalty(parseFloat(e.target.value))} className="w-full accent-indigo-500" />
                     </div>
                   </div>
                 )}
 
-                {/* USER PERSONA */}
+                {/* USER PERSONA (SPLIT USER NAME & PERSONA) */}
                 {settingsSubTab === 'persona' && (
-                  <div>
-                    <label className="text-zinc-400 font-semibold block mb-1">내 페르소나 (유저 설정)</label>
-                    <textarea value={userPersona} onChange={(e) => setUserPersona(e.target.value)} placeholder="AI가 나를 인식하는 정보나 말투를 자유롭게 입력하세요." className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-sm text-zinc-100 h-48 focus:border-indigo-500" />
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-zinc-400 font-semibold block mb-1">유저 이름 (Name)</label>
+                      <input type="text" value={userName} onChange={(e) => setUserName(e.target.value)} placeholder="예: 홍길동" className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-2.5 text-sm text-zinc-100 focus:border-indigo-500" />
+                    </div>
+                    <div>
+                      <label className="text-zinc-400 font-semibold block mb-1">유저 페르소나 (Persona Description)</label>
+                      <textarea value={userPersona} onChange={(e) => setUserPersona(e.target.value)} placeholder="AI가 나를 어떻게 인식하길 원하는지 성격, 직업, 말투 등을 입력하세요." className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-sm text-zinc-100 h-36 focus:border-indigo-500" />
+                    </div>
                   </div>
                 )}
 
