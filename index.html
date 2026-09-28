@@ -28,6 +28,7 @@
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
+    // Flash 3.8 ~ 3.5 모델 4개만 구성 (Pro 제외)
     const FLASH_MODELS = [
       { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
       { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },
@@ -236,7 +237,7 @@
         }));
       };
 
-      // API Request Helper (과부하 발생 시 3.8 -> 3.7 -> 3.6 -> 3.5 순차 자동 전환)
+      // API Request Helper (Pro 완전히 제외, Flash 3.8 -> 3.7 -> 3.6 -> 3.5 순차 전환 + 까이면 1.5초 후 재시도)
       const fetchAIResponse = async (msgsToSend) => {
         let processedMainPrompt = RISU_BUILTIN_MAIN_PROMPT
           .replaceAll('{{char}}', activeChar?.name || 'Character')
@@ -260,16 +261,22 @@
           maxOutputTokens: parseInt(maxOutputTokens, 10)
         };
 
-        // 선택된 모델을 1순위로 두고, 그 뒤로 하위 모델들을 순서대로 배치
-        const allModels = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash'];
-        const fallbackModels = [selectedModel, ...allModels.filter(m => m !== selectedModel)];
+        // Flash 계열 4개 모델 순서
+        const allModels = [
+          'gemini-3.8-flash',
+          'gemini-3.7-flash',
+          'gemini-3.6-flash',
+          'gemini-3.5-flash'
+        ];
 
+        // 설정에서 선택한 모델을 최우선으로 배치
+        const fallbackModels = [selectedModel, ...allModels.filter(m => m !== selectedModel)];
         let lastErrorMessage = '';
 
         for (let i = 0; i < fallbackModels.length; i++) {
           const targetModel = fallbackModels[i];
           try {
-            console.log(`[요청 ${i + 1}/${fallbackModels.length}] ${targetModel} 모델 사용 중...`);
+            console.log(`[시도 ${i + 1}/${fallbackModels.length}] ${targetModel} 모델에 요청 중...`);
 
             const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`, {
               method: 'POST',
@@ -285,27 +292,25 @@
 
             if (data.error) {
               const errMsg = data.error.message || '';
-              // 과부하 에러(429, 503, demand, quota 등)일 경우 다음 모델로 스위칭
-              if (response.status === 429 || response.status === 503 || errMsg.includes('demand') || errMsg.includes('quota')) {
-                lastErrorMessage = errMsg;
-                console.warn(`${targetModel} 과부하 발생. 다음 모델로 전환합니다...`);
-                continue;
-              }
-              throw new Error(errMsg || 'API 오류');
+              lastErrorMessage = errMsg;
+              console.warn(`[거절됨] ${targetModel} 실패: ${errMsg}. 1.5초 대기 후 다음 모델로 넘어갑니다...`);
+
+              // 까였을 때 바로 연속 요청하면 구글이 차단하므로 1.5초 딜레이 추가
+              await new Promise(resolve => setTimeout(resolve, 1500));
+              continue;
             }
 
             return data.candidates?.[0]?.content?.parts?.[0]?.text || '답변을 생성할 수 없습니다.';
 
           } catch (err) {
-            if (i < fallbackModels.length - 1 && (err.message.includes('demand') || err.message.includes('fetch'))) {
-              lastErrorMessage = err.message;
-              continue;
-            }
-            throw err;
+            lastErrorMessage = err.message;
+            console.warn(`[네트워크/API 오류] ${targetModel}: ${err.message}`);
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            continue;
           }
         }
 
-        throw new Error(`모든 모델이 과부하 상태입니다. (${lastErrorMessage || '다시 시도해주세요.'})`);
+        throw new Error(`Flash 4개 모델(3.8~3.5)이 모두 거절되었습니다. (${lastErrorMessage || '잠시 후 다시 시도해주세요.'})`);
       };
 
       const handleSend = async () => {
