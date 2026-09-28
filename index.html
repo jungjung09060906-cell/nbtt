@@ -29,13 +29,11 @@
     const { useState, useEffect, useRef } = React;
 
     const FLASH_MODELS = [
-      { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
-      { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },
-      { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash' },
-      { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash' }
+      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+      { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
+      { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' }
     ];
 
-    // 무지개 단색 프사 컬러 뱅크
     const COLOR_PALETTE = [
       '#EF4444', // Red
       '#F97316', // Orange
@@ -52,7 +50,7 @@
         name: 'Character Name',
         avatarColor: '#EF4444',
         description: '캐릭터 설명을 입력하세요',
-        firstMessage: '안녕하세요. 무엇을 도와드릴까요?',
+        firstMessage: '*살며시 미소를 지으며 너를 바라본다.* 안녕, 오늘 어떤 하루를 보냈어?',
         systemPrompt: '너는 친절하고 다정한 인공지능 어시스턴트이다.'
       }
     ];
@@ -68,6 +66,31 @@
 * Describe non-dialogues inside asterisks (*action*).
 * Always maintain a craftsmanlike spirit and stay strictly in character.`;
 
+    // AI 대사/지문 텍스트 렌더링 함수 (*지문* = 흰색, 대사 = 주황색)
+    function RenderAiFormattedText({ text }) {
+      if (!text) return null;
+      const parts = text.split(/(\*[^*]+\*)/g);
+
+      return (
+        <span>
+          {parts.map((part, index) => {
+            if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+              return (
+                <span key={index} className="text-white italic">
+                  {part}
+                </span>
+              );
+            }
+            return (
+              <span key={index} className="text-orange-400 font-medium">
+                {part}
+              </span>
+            );
+          })}
+        </span>
+      );
+    }
+
     function App() {
       // Sidebar State
       const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -79,7 +102,7 @@
 
       // Settings State
       const [apiKey, setApiKey] = useState(() => localStorage.getItem('risu_api_key') || '');
-      const [selectedModel, setSelectedModel] = useState('gemini-3.8-flash');
+      const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
       const [userName, setUserName] = useState(() => localStorage.getItem('risu_user_name') || 'User');
       const [userPersona, setUserPersona] = useState(() => localStorage.getItem('risu_user_persona') || '');
 
@@ -127,7 +150,6 @@
       const handleFirstMessageChange = (newFirstMsg) => {
         setCharacters(characters.map(c => c.id === activeCharId ? { ...c, firstMessage: newFirstMsg } : c));
         
-        // 동기화: 첫 메시지(인덱스 0) 내용 수정
         setChatSessions(prev => {
           const charSessions = prev[activeCharId] || [];
           const updatedSessions = charSessions.map(sess => {
@@ -168,7 +190,7 @@
         setActiveSessionId(newSess.id);
       };
 
-      // Add New Character with Solid Colors
+      // Add New Character
       const handleAddCharacter = () => {
         const nextColor = COLOR_PALETTE[characters.length % COLOR_PALETTE.length];
         const newChar = {
@@ -454,15 +476,22 @@
               ) : (
                 currentSession.messages?.map((m, idx) => {
                   const isFirstMsg = idx === 0 && m.id === 'init-msg';
+                  const isModel = m.role === 'model';
+
                   return (
-                    <div key={m.id} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-                      <div className={`max-w-[88%] p-2.5 rounded-lg leading-relaxed relative group whitespace-pre-wrap ${m.role === 'user' ? 'bg-[#2b2a22] text-amber-100 border border-[#38372d]' : 'bg-[#181816] text-zinc-300 border border-[#282824]'}`}>
-                        {m.content}
+                    <div key={m.id} className={`flex flex-col ${isModel ? 'items-start' : 'items-end'}`}>
+                      <div className={`max-w-[88%] p-2.5 rounded-lg leading-relaxed relative group whitespace-pre-wrap ${isModel ? 'bg-[#181816] border border-[#282824]' : 'bg-[#2b2a22] text-amber-100 border border-[#38372d]'}`}>
                         
-                        {/* Message Control Buttons */}
+                        {/* AI 메시지: *지문* = 흰색, 대사 = 주황색 / 유저 메시지: 일반 텍스트 */}
+                        {isModel ? (
+                          <RenderAiFormattedText text={m.content} />
+                        ) : (
+                          m.content
+                        )}
+                        
+                        {/* Control Buttons */}
                         <div className="flex items-center space-x-2 justify-end mt-1.5 pt-1 border-t border-zinc-700/30 text-[10px] text-zinc-500">
                           <button onClick={() => handleRetry(idx)} className="hover:text-amber-300 transition">🔄 다시시도</button>
-                          {/* 첫 메시지는 삭제 버튼 미표시 */}
                           {!isFirstMsg && (
                             <button onClick={() => handleDeleteMessage(m.id)} className="hover:text-red-400 transition">🗑️ 삭제</button>
                           )}
@@ -489,7 +518,6 @@
                   style={{ fontSize: `${textScale}px` }}
                 />
                 
-                {/* 우측 버튼 영역 (크고 누르기 편한 전송 버튼) */}
                 <div className="absolute right-1 flex items-center space-x-1 text-zinc-400">
                   <button 
                     onClick={handleSend} 
