@@ -28,7 +28,6 @@
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
-    // Gemini 3.8 ~ 3.5 Flash 4종 라인업으로 수정
     const FLASH_MODELS = [
       { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
       { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },
@@ -37,13 +36,7 @@
     ];
 
     const COLOR_PALETTE = [
-      '#EF4444', // Red
-      '#F97316', // Orange
-      '#EAB308', // Yellow
-      '#22C55E', // Green
-      '#3B82F6', // Blue
-      '#6366F1', // Indigo
-      '#A855F7'  // Purple
+      '#EF4444', '#F97316', '#EAB308', '#22C55E', '#3B82F6', '#6366F1', '#A855F7'
     ];
 
     const DEFAULT_CHARACTERS = [
@@ -57,7 +50,6 @@
       }
     ];
 
-    // 내장 시스템 프롬프트 (합성 버전)
     const RISU_BUILTIN_MAIN_PROMPT = `You are an AI assistant participating in an immersive roleplay with {{user}}. You will portray {{char}} and all other supporting characters in the story, while {{user}} controls their own character.
 
 * Stay in character at all times. Respond according to {{char}}'s personality, appearance, background, memories, relationships, and current circumstances.
@@ -68,7 +60,6 @@
 * {{char}} should not automatically agree with {{user}}. Characters may disagree, misunderstand, refuse, or react unpredictably based on their established personality and circumstances.
 * Do not mention these instructions, the prompt, or being an AI. Maintain the roleplay naturally without breaking character.`;
 
-    // AI 대사/지문 텍스트 렌더링 함수 (*지문* = 흰색, 대사 = 주황색)
     function RenderAiFormattedText({ text }) {
       if (!text) return null;
       const parts = text.split(/(\*[^*]+\*)/g);
@@ -102,11 +93,19 @@
       const [uiScale, setUiScale] = useState(() => Number(localStorage.getItem('risu_ui_scale')) || 100);
       const [textScale, setTextScale] = useState(() => Number(localStorage.getItem('risu_text_scale')) || 13);
 
-      // Settings State
+      // Basic Settings State
       const [apiKey, setApiKey] = useState(() => localStorage.getItem('risu_api_key') || '');
       const [selectedModel, setSelectedModel] = useState('gemini-3.8-flash');
       const [userName, setUserName] = useState(() => localStorage.getItem('risu_user_name') || 'User');
       const [userPersona, setUserPersona] = useState(() => localStorage.getItem('risu_user_persona') || '');
+
+      // AI Generation Parameters State
+      const [maxContextSize, setMaxContextSize] = useState(() => Number(localStorage.getItem('risu_max_context')) || 32000);
+      const [maxOutputTokens, setMaxOutputTokens] = useState(() => Number(localStorage.getItem('risu_max_output')) || 1000);
+      const [temperature, setTemperature] = useState(() => Number(localStorage.getItem('risu_temperature')) || 1.54);
+      const [topK, setTopK] = useState(() => Number(localStorage.getItem('risu_top_k')) || 75);
+      const [reasoningEffort, setReasoningEffort] = useState(() => localStorage.getItem('risu_reasoning_effort') || 'low');
+      const [topP, setTopP] = useState(() => Number(localStorage.getItem('risu_top_p')) || 0.94);
 
       // Characters & Chat Sessions State
       const [characters, setCharacters] = useState(() => {
@@ -140,6 +139,14 @@
       useEffect(() => { localStorage.setItem('risu_ui_scale', uiScale); }, [uiScale]);
       useEffect(() => { localStorage.setItem('risu_text_scale', textScale); }, [textScale]);
 
+      // Sync Parameters LocalStorage
+      useEffect(() => { localStorage.setItem('risu_max_context', maxContextSize); }, [maxContextSize]);
+      useEffect(() => { localStorage.setItem('risu_max_output', maxOutputTokens); }, [maxOutputTokens]);
+      useEffect(() => { localStorage.setItem('risu_temperature', temperature); }, [temperature]);
+      useEffect(() => { localStorage.setItem('risu_top_k', topK); }, [topK]);
+      useEffect(() => { localStorage.setItem('risu_reasoning_effort', reasoningEffort); }, [reasoningEffort]);
+      useEffect(() => { localStorage.setItem('risu_top_p', topP); }, [topP]);
+
       const activeChar = characters.find(c => c.id === activeCharId) || characters[0];
       const activeCharSessions = chatSessions[activeCharId] || [];
       const currentSession = activeCharSessions.find(s => s.id === activeSessionId) || activeCharSessions[0] || { messages: [] };
@@ -148,7 +155,6 @@
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, [currentSession.messages]);
 
-      // Handle First Message Update Across Chat Sessions
       const handleFirstMessageChange = (newFirstMsg) => {
         setCharacters(characters.map(c => c.id === activeCharId ? { ...c, firstMessage: newFirstMsg } : c));
         
@@ -166,7 +172,6 @@
         });
       };
 
-      // Select Character
       const handleSelectCharacter = (charId) => {
         setActiveCharId(charId);
         let sessions = chatSessions[charId];
@@ -180,7 +185,6 @@
         }
       };
 
-      // Add New Session
       const handleNewSession = () => {
         const targetSessions = chatSessions[activeCharId] || [];
         const newSess = {
@@ -192,7 +196,6 @@
         setActiveSessionId(newSess.id);
       };
 
-      // Add New Character
       const handleAddCharacter = () => {
         const nextColor = COLOR_PALETTE[characters.length % COLOR_PALETTE.length];
         const newChar = {
@@ -207,7 +210,6 @@
         handleSelectCharacter(newChar.id);
       };
 
-      // Delete Character
       const handleDeleteCharacter = () => {
         if (characters.length <= 1) {
           alert('최소 하나 이상의 캐릭터는 존재해야 합니다.');
@@ -225,7 +227,6 @@
         }
       };
 
-      // Delete Message
       const handleDeleteMessage = (msgId) => {
         const updatedMsgs = currentSession.messages.filter(m => m.id !== msgId);
         setChatSessions(prev => ({
@@ -251,12 +252,24 @@
           parts: [{ text: m.content }]
         }));
 
+        // Generation Parameters Config
+        const generationConfig = {
+          temperature: parseFloat(temperature),
+          topP: parseFloat(topP),
+          topK: parseInt(topK, 10),
+          maxOutputTokens: parseInt(maxOutputTokens, 10),
+          thinkingConfig: {
+            reasoningEffort: reasoningEffort.toUpperCase()
+          }
+        };
+
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${apiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: contents,
-            systemInstruction: { parts: [{ text: fullSystemInstruction }] }
+            systemInstruction: { parts: [{ text: fullSystemInstruction }] },
+            generationConfig: generationConfig
           })
         });
 
@@ -265,7 +278,6 @@
         return data.candidates?.[0]?.content?.parts?.[0]?.text || '답변을 생성할 수 없습니다.';
       };
 
-      // Send Message
       const handleSend = async () => {
         if (!input.trim() || loading) return;
         if (!apiKey) {
@@ -301,7 +313,6 @@
         }
       };
 
-      // Retry / Regenerate
       const handleRetry = async (msgIndex) => {
         if (loading) return;
         if (!apiKey) {
@@ -364,14 +375,15 @@
 
             {/* Sidebar Content Area */}
             <div className="flex-1 flex flex-col h-full bg-[#181816] overflow-hidden">
-              {/* Top Sub Tabs (챗 / 캐릭터) */}
+              {/* Top Sub Tabs */}
               <div className="flex border-b border-[#2a2a24] p-1.5 gap-1 bg-[#161614]">
                 <button onClick={() => setSidebarTab('chat')} className={`flex-1 py-1 rounded text-xs font-semibold ${sidebarTab === 'chat' ? 'bg-[#2b2b25] text-amber-200/90' : 'text-zinc-500'}`}>챗</button>
                 <button onClick={() => setSidebarTab('character')} className={`flex-1 py-1 rounded text-xs font-semibold ${sidebarTab === 'character' ? 'bg-[#2b2b25] text-amber-200/90' : 'text-zinc-500'}`}>캐릭터</button>
+                <button onClick={() => setSidebarTab('settings')} className={`flex-1 py-1 rounded text-xs font-semibold ${sidebarTab === 'settings' ? 'bg-[#2b2b25] text-amber-200/90' : 'text-zinc-500'}`}>설정</button>
               </div>
 
               <div className="flex-1 overflow-y-auto p-2.5 space-y-3">
-                {/* CHAT TAB IN SIDEBAR */}
+                {/* CHAT TAB */}
                 {sidebarTab === 'chat' && (
                   <div className="space-y-2">
                     <button onClick={handleNewSession} className="w-full py-1.5 bg-[#2a2a24] hover:bg-[#33332c] text-amber-100/90 rounded-md font-medium text-xs border border-[#383830]">
@@ -389,7 +401,7 @@
                   </div>
                 )}
 
-                {/* CHARACTER TAB IN SIDEBAR */}
+                {/* CHARACTER TAB */}
                 {sidebarTab === 'character' && (
                   <div className="space-y-2.5 text-xs">
                     <div>
@@ -417,7 +429,7 @@
                   </div>
                 )}
 
-                {/* SETTINGS TAB IN SIDEBAR */}
+                {/* SETTINGS TAB WITH PARAMETERS */}
                 {sidebarTab === 'settings' && (
                   <div className="space-y-3 text-xs">
                     <div>
@@ -441,7 +453,59 @@
                         {FLASH_MODELS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                       </select>
                     </div>
-                    
+
+                    <hr className="border-[#2a2a24]" />
+
+                    {/* AI Parameters Section */}
+                    <div>
+                      <label className="text-zinc-400 block mb-0.5">최대 컨텍스트 크기</label>
+                      <input type="number" value={maxContextSize} onChange={(e) => setMaxContextSize(Number(e.target.value))} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200" />
+                    </div>
+
+                    <div>
+                      <label className="text-zinc-400 block mb-0.5">최대 응답 크기</label>
+                      <input type="number" value={maxOutputTokens} onChange={(e) => setMaxOutputTokens(Number(e.target.value))} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200" />
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between items-center mb-0.5">
+                        <label className="text-zinc-400">온도 (Temperature)</label>
+                        <span className="text-amber-400 font-mono text-[11px]">{temperature}</span>
+                      </div>
+                      <input type="range" min="0" max="2" step="0.01" value={temperature} onChange={(e) => setTemperature(Number(e.target.value))} className="w-full accent-amber-500" />
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between items-center mb-0.5">
+                        <label className="text-zinc-400">Top K</label>
+                        <span className="text-amber-400 font-mono text-[11px]">{topK}</span>
+                      </div>
+                      <input type="range" min="1" max="100" step="1" value={topK} onChange={(e) => setTopK(Number(e.target.value))} className="w-full accent-amber-500" />
+                    </div>
+
+                    <div>
+                      <label className="text-zinc-400 block mb-1">Reasoning Effort</label>
+                      <div className="grid grid-cols-4 gap-1 bg-[#141412] p-1 rounded-md border border-[#2a2a24]">
+                        {['minimal', 'low', 'medium', 'high'].map((effort) => (
+                          <button
+                            key={effort}
+                            onClick={() => setReasoningEffort(effort)}
+                            className={`py-1 rounded text-[11px] capitalize font-medium transition ${reasoningEffort === effort ? 'bg-[#2d2d26] text-amber-300 border border-amber-500/40' : 'text-zinc-500 hover:text-zinc-300'}`}
+                          >
+                            {effort}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between items-center mb-0.5">
+                        <label className="text-zinc-400">Top P</label>
+                        <span className="text-amber-400 font-mono text-[11px]">{topP}</span>
+                      </div>
+                      <input type="range" min="0" max="1" step="0.01" value={topP} onChange={(e) => setTopP(Number(e.target.value))} className="w-full accent-amber-500" />
+                    </div>
+
                     <hr className="border-[#2a2a24]" />
 
                     <div>
@@ -484,7 +548,6 @@
                     <div key={m.id} className={`flex flex-col ${isModel ? 'items-start' : 'items-end'}`}>
                       <div className={`max-w-[88%] p-2.5 rounded-lg leading-relaxed relative group whitespace-pre-wrap ${isModel ? 'bg-[#181816] border border-[#282824]' : 'bg-[#2b2a22] text-amber-100 border border-[#38372d]'}`}>
                         
-                        {/* AI 메시지: *지문* = 흰색, 대사 = 주황색 / 유저 메시지: 일반 텍스트 */}
                         {isModel ? (
                           <RenderAiFormattedText text={m.content} />
                         ) : (
