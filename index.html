@@ -28,10 +28,12 @@
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
+    // Gemini 3.8 ~ 3.5 Flash 4종 라인업으로 수정
     const FLASH_MODELS = [
-      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
-      { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
-      { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' }
+      { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
+      { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },
+      { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash' },
+      { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash' }
     ];
 
     const COLOR_PALETTE = [
@@ -55,7 +57,7 @@
       }
     ];
 
-    // 새롭게 통합 적용된 메인 기본 프롬프트
+    // 내장 시스템 프롬프트 (합성 버전)
     const RISU_BUILTIN_MAIN_PROMPT = `You are an AI assistant participating in an immersive roleplay with {{user}}. You will portray {{char}} and all other supporting characters in the story, while {{user}} controls their own character.
 
 * Stay in character at all times. Respond according to {{char}}'s personality, appearance, background, memories, relationships, and current circumstances.
@@ -102,7 +104,7 @@
 
       // Settings State
       const [apiKey, setApiKey] = useState(() => localStorage.getItem('risu_api_key') || '');
-      const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
+      const [selectedModel, setSelectedModel] = useState('gemini-3.8-flash');
       const [userName, setUserName] = useState(() => localStorage.getItem('risu_user_name') || 'User');
       const [userPersona, setUserPersona] = useState(() => localStorage.getItem('risu_user_persona') || '');
 
