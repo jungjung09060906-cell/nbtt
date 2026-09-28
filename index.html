@@ -4,9 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="theme-color" content="#09090b" />
-  <title>RisuAI Gemini Web</title>
+  <meta name="theme-color" content="#181816" />
+  <title>RisuAI Native Web</title>
   
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -15,73 +14,61 @@
   
   <style>
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
-    * { font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
-    body { background-color: #09090b; color: #f4f4f5; }
-    .glass-header { background: rgba(18, 18, 22, 0.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+    * { font-family: 'Pretendard', -apple-system, system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
+    body { background-color: #1e1e1a; color: #d4d4d0; }
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb { background: #383832; border-radius: 4px; }
   </style>
 </head>
-<body class="h-screen overflow-hidden antialiased selection:bg-indigo-500 selection:text-white">
+<body class="h-screen overflow-hidden text-sm">
   <div id="root" class="h-full"></div>
 
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
     const FLASH_MODELS = [
-      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (권장/안정)' },
+      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
       { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
-      { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash (실험적)' },
-      { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },
-      { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash' },
-      { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash' }
+      { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' }
     ];
 
     const DEFAULT_CHARACTERS = [
       {
         id: 'char-1',
-        name: '엘레나',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300',
-        description: '차분하고 세련된 인공지능 연구원',
-        firstMessage: '안녕하세요. 오늘 어떤 이야기를 시작해볼까요?',
-        systemPrompt: '너는 차분하고 지적인 20대 여성 연구원 엘레나이다. 섬세하고 자연스럽게 대화하며 몰입감 높은 구어체를 사용하라.'
+        name: 'Character Name',
+        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200',
+        description: '캐릭터 설명을 입력하세요',
+        firstMessage: '안녕하세요. 무엇을 도와드릴까요?',
+        systemPrompt: '너는 친절하고 다정한 인공지능 어시스턴트이다.'
       }
     ];
 
     function App() {
-      // Global Settings
+      // Sidebar State
+      const [sidebarOpen, setSidebarOpen] = useState(false);
+      const [sidebarTab, setSidebarTab] = useState('chat'); // 'chat', 'character', 'settings'
+
+      // Settings State
       const [apiKey, setApiKey] = useState(() => localStorage.getItem('risu_api_key') || '');
       const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
-      
-      // User Persona (Name & Description Split)
       const [userName, setUserName] = useState(() => localStorage.getItem('risu_user_name') || 'User');
-      const [userPersona, setUserPersona] = useState(() => localStorage.getItem('risu_user_persona') || '친근하고 호기심 많은 대화 상대');
-      const [fontSize, setFontSize] = useState(() => localStorage.getItem('risu_font_size') || 'text-sm');
-      
-      // Risu AI Parameters
-      const [temp, setTemp] = useState(0.85);
-      const [topP, setTopP] = useState(0.95);
-      const [topK, setTopK] = useState(40);
-      const [presencePenalty, setPresencePenalty] = useState(0.0);
-      const [frequencyPenalty, setFrequencyPenalty] = useState(0.0);
-      const [maxTokens, setMaxTokens] = useState(8192);
+      const [userPersona, setUserPersona] = useState(() => localStorage.getItem('risu_user_persona') || '');
 
-      // Characters & Multi-Chat Sessions
+      // Characters & Chat Sessions State
       const [characters, setCharacters] = useState(() => {
         const saved = localStorage.getItem('risu_characters');
         return saved ? JSON.parse(saved) : DEFAULT_CHARACTERS;
       });
       const [activeCharId, setActiveCharId] = useState(() => characters[0]?.id || '');
-      
-      // Sessions structure: { [charId]: [ { id, name, messages: [] } ] }
+
       const [chatSessions, setChatSessions] = useState(() => {
         const saved = localStorage.getItem('risu_chat_sessions');
         if (saved) return JSON.parse(saved);
         const initChar = DEFAULT_CHARACTERS[0];
         return {
           [initChar.id]: [
-            { id: 'session-1', name: '대화 1', messages: [{ id: 1, role: 'model', content: initChar.firstMessage }] }
+            { id: 'session-1', name: 'Chat 1', messages: [{ id: 1, role: 'model', content: initChar.firstMessage }] }
           ]
         };
       });
@@ -89,15 +76,12 @@
 
       const [input, setInput] = useState('');
       const [loading, setLoading] = useState(false);
-      const [activeTab, setActiveTab] = useState('chat'); // chat, char_list, char_edit, settings
-      const [settingsSubTab, setSettingsSubTab] = useState('ai'); // ai, persona, ui
       const chatEndRef = useRef(null);
 
-      // Storage sync
+      // LocalStorage Sync
       useEffect(() => { localStorage.setItem('risu_api_key', apiKey); }, [apiKey]);
       useEffect(() => { localStorage.setItem('risu_user_name', userName); }, [userName]);
       useEffect(() => { localStorage.setItem('risu_user_persona', userPersona); }, [userPersona]);
-      useEffect(() => { localStorage.setItem('risu_font_size', fontSize); }, [fontSize]);
       useEffect(() => { localStorage.setItem('risu_characters', JSON.stringify(characters)); }, [characters]);
       useEffect(() => { localStorage.setItem('risu_chat_sessions', JSON.stringify(chatSessions)); }, [chatSessions]);
 
@@ -115,85 +99,46 @@
         let sessions = chatSessions[charId];
         if (!sessions || sessions.length === 0) {
           const char = characters.find(c => c.id === charId);
-          const newSess = { id: `session-${Date.now()}`, name: '대화 1', messages: [{ id: 1, role: 'model', content: char?.firstMessage || '안녕하세요!' }] };
+          const newSess = { id: `session-${Date.now()}`, name: 'Chat 1', messages: [{ id: 1, role: 'model', content: char?.firstMessage || '안녕하세요!' }] };
           setChatSessions(prev => ({ ...prev, [charId]: [newSess] }));
           setActiveSessionId(newSess.id);
         } else {
           setActiveSessionId(sessions[0].id);
         }
-        setActiveTab('chat');
+      };
+
+      // Add New Session
+      const handleNewSession = () => {
+        const targetSessions = chatSessions[activeCharId] || [];
+        const newSess = {
+          id: `session-${Date.now()}`,
+          name: `Chat ${targetSessions.length + 1}`,
+          messages: [{ id: Date.now(), role: 'model', content: activeChar.firstMessage }]
+        };
+        setChatSessions(prev => ({ ...prev, [activeCharId]: [...(prev[activeCharId] || []), newSess] }));
+        setActiveSessionId(newSess.id);
       };
 
       // Add New Character
       const handleAddCharacter = () => {
         const newChar = {
           id: `char-${Date.now()}`,
-          name: '새 캐릭터',
-          avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=300',
-          description: '캐릭터 설명을 입력하세요',
+          name: 'New Character',
+          avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200',
+          description: '',
           firstMessage: '안녕하세요!',
-          systemPrompt: '너는 친절한 AI 어시스턴트이다.'
+          systemPrompt: '너는 AI 어시스턴트이다.'
         };
         setCharacters(prev => [...prev, newChar]);
         handleSelectCharacter(newChar.id);
       };
 
-      // Add New Session
-      const handleNewSession = (charId = activeCharId) => {
-        const targetChar = characters.find(c => c.id === charId) || activeChar;
-        const targetSessions = chatSessions[charId] || [];
-        const newSess = {
-          id: `session-${Date.now()}`,
-          name: `대화 ${targetSessions.length + 1}`,
-          messages: [{ id: Date.now(), role: 'model', content: targetChar.firstMessage }]
-        };
-        setChatSessions(prev => ({
-          ...prev,
-          [charId]: [...(prev[charId] || []), newSess]
-        }));
-        setActiveSessionId(newSess.id);
-      };
-
-      // Delete Session
-      const handleDeleteSession = (charId, sessId) => {
-        const sessions = chatSessions[charId] || [];
-        if (sessions.length <= 1) {
-          alert('최소 1개의 대화방은 유지되어야 합니다.');
-          return;
-        }
-        if (confirm('이 대화 기록을 삭제하시겠습니까?')) {
-          const filtered = sessions.filter(s => s.id !== sessId);
-          setChatSessions(prev => ({ ...prev, [charId]: filtered }));
-          if (activeSessionId === sessId) {
-            setActiveSessionId(filtered[0].id);
-          }
-        }
-      };
-
-      // Clean Contents Generator (Model Turn Error Prevention)
-      const buildCleanContents = (history, newUserMsg) => {
-        const contents = [];
-        const fullHistory = [...history, { role: 'user', content: newUserMsg }];
-        let lastRole = null;
-        for (const msg of fullHistory) {
-          const role = msg.role === 'user' ? 'user' : 'model';
-          if (role === lastRole) {
-            contents[contents.length - 1].parts[0].text += '\n' + msg.content;
-          } else {
-            contents.push({ role: role, parts: [{ text: msg.content }] });
-            lastRole = role;
-          }
-        }
-        while (contents.length > 0 && contents[0].role !== 'user') contents.shift();
-        while (contents.length > 0 && contents[contents.length - 1].role !== 'user') contents.pop();
-        return contents;
-      };
-
       const handleSend = async () => {
         if (!input.trim() || loading) return;
         if (!apiKey) {
-          alert('설정 탭에서 Gemini API Key를 입력하세요.');
-          setActiveTab('settings');
+          alert('사이드바 메뉴 > 설정에서 Gemini API Key를 입력하세요.');
+          setSidebarOpen(true);
+          setSidebarTab('settings');
           return;
         }
 
@@ -209,52 +154,33 @@
         }));
 
         setLoading(true);
-        const cleanContents = buildCleanContents(currentMsgs, userMsg);
 
         try {
-          let targetModel = selectedModel;
+          const contents = updatedMsgs.map(m => ({
+            role: m.role === 'user' ? 'user' : 'model',
+            parts: [{ text: m.content }]
+          }));
+
           const fullSystemPrompt = `[캐릭터 설정]\n${activeChar.systemPrompt}\n\n[유저 정보]\n이름: ${userName}\n페르소나: ${userPersona}`;
 
-          let response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`, {
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${apiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              contents: cleanContents,
-              systemInstruction: { parts: [{ text: fullSystemPrompt }] },
-              generationConfig: {
-                temperature: temp,
-                topP: topP,
-                topK: topK,
-                presencePenalty: presencePenalty,
-                frequencyPenalty: frequencyPenalty,
-                maxOutputTokens: maxTokens
-              }
+              contents: contents,
+              systemInstruction: { parts: [{ text: fullSystemPrompt }] }
             })
           });
-
-          if (!response.ok && targetModel !== 'gemini-2.5-flash') {
-            targetModel = 'gemini-2.5-flash';
-            response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: cleanContents,
-                systemInstruction: { parts: [{ text: fullSystemPrompt }] },
-                generationConfig: { temperature: temp, topP: topP, topK: topK, presencePenalty: presencePenalty, frequencyPenalty: frequencyPenalty, maxOutputTokens: maxTokens }
-              })
-            });
-          }
 
           const data = await response.json();
           if (data.error) throw new Error(data.error.message || 'API 오류');
 
-          const replyText = data.candidates?.[0]?.content?.parts?.[0]?.text || '답변을 생성하지 못했습니다.';
-          
+          const replyText = data.candidates?.[0]?.content?.parts?.[0]?.text || '답변을 생성할 수 없습니다.';
+
           setChatSessions(prev => ({
             ...prev,
             [activeCharId]: (prev[activeCharId] || []).map(s => s.id === activeSessionId ? { ...s, messages: [...updatedMsgs, { id: Date.now() + 1, role: 'model', content: replyText }] } : s)
           }));
-
         } catch (err) {
           alert('오류: ' + err.message);
         } finally {
@@ -263,230 +189,167 @@
       };
 
       return (
-        <div className="flex flex-col h-full max-w-xl mx-auto bg-zinc-950 border-x border-zinc-800/60 shadow-2xl">
-          {/* Top Header */}
-          <header className="glass-header sticky top-0 z-20 flex items-center justify-between px-4 py-3 border-b border-zinc-800/80">
-            <div className="flex items-center gap-2.5 overflow-hidden">
-              <img src={activeChar?.avatar} className="w-9 h-9 rounded-full object-cover ring-2 ring-indigo-500/30 shrink-0" />
-              <div className="truncate">
-                <h1 className="font-bold text-sm text-zinc-100 truncate">{activeChar?.name}</h1>
-                <p className="text-[10px] text-zinc-400 font-mono">{selectedModel}</p>
-              </div>
-            </div>
+        <div className="flex h-full w-full bg-[#1e1e1a] text-[#d4d4d0] relative overflow-hidden">
+          
+          {/* LEFT SLIDING SIDEBAR (RISU AI EXACT STYLE) */}
+          <div className={`fixed inset-y-0 left-0 z-50 flex w-[320px] bg-[#181816] transition-transform duration-200 ease-in-out border-r border-[#2d2d28] ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+            
+            {/* Leftmost Vertical Icon Bar */}
+            <div className="w-[52px] bg-[#141412] flex flex-col items-center py-3 space-y-3 border-r border-[#262622] shrink-0">
+              <button onClick={() => setSidebarOpen(false)} className="w-9 h-9 flex items-center justify-center bg-[#282824] hover:bg-[#33332d] rounded-lg text-zinc-300">
+                &larr;
+              </button>
+              
+              <div className="w-full border-t border-[#262622] my-1"></div>
 
-            <nav className="flex bg-zinc-900 p-1 rounded-xl border border-zinc-800">
-              <button onClick={() => setActiveTab('chat')} className={`px-2.5 py-1 text-xs font-semibold rounded-lg ${activeTab === 'chat' ? 'bg-indigo-600 text-white' : 'text-zinc-400'}`}>채팅</button>
-              <button onClick={() => setActiveTab('char_list')} className={`px-2.5 py-1 text-xs font-semibold rounded-lg ${activeTab === 'char_list' || activeTab === 'char_edit' ? 'bg-indigo-600 text-white' : 'text-zinc-400'}`}>캐릭터</button>
-              <button onClick={() => setActiveTab('settings')} className={`px-2.5 py-1 text-xs font-semibold rounded-lg ${activeTab === 'settings' ? 'bg-indigo-600 text-white' : 'text-zinc-400'}`}>설정</button>
-            </nav>
-          </header>
-
-          {/* CHAT TAB */}
-          {activeTab === 'chat' && (
-            <div className="flex-1 flex flex-col justify-between overflow-hidden">
-              {/* Quick Session Bar */}
-              <div className="flex items-center gap-2 px-4 py-2 bg-zinc-900/50 border-b border-zinc-800/50 overflow-x-auto text-xs">
-                {activeCharSessions.map(s => (
-                  <button 
-                    key={s.id} 
-                    onClick={() => setActiveSessionId(s.id)}
-                    className={`px-3 py-1 rounded-lg shrink-0 ${activeSessionId === s.id ? 'bg-zinc-800 text-indigo-400 font-semibold border border-indigo-500/30' : 'text-zinc-500'}`}
-                  >
-                    {s.name}
+              {/* Character Avatars list */}
+              <div className="flex-1 overflow-y-auto space-y-2 w-full flex flex-col items-center">
+                {characters.map(c => (
+                  <button key={c.id} onClick={() => handleSelectCharacter(c.id)} className={`w-9 h-9 rounded-lg overflow-hidden border ${activeCharId === c.id ? 'border-amber-500/80 ring-1 ring-amber-500/50' : 'border-[#33332d]'}`}>
+                    <img src={c.avatar} className="w-full h-full object-cover" />
                   </button>
                 ))}
-                <button onClick={() => handleNewSession(activeCharId)} className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-bold shrink-0">+ 새 대화</button>
+                <button onClick={handleAddCharacter} className="w-9 h-9 bg-[#242420] hover:bg-[#33332d] rounded-lg border border-[#33332d] flex items-center justify-center text-zinc-400 font-bold">+</button>
               </div>
 
-              {/* Chat View */}
-              <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-                {(currentSession.messages || []).map((m) => (
-                  <div key={m.id} className={`flex gap-2.5 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    {m.role === 'model' && <img src={activeChar?.avatar} className="w-7 h-7 rounded-full object-cover mt-1 shrink-0 ring-1 ring-zinc-700" />}
-                    <div className={`max-w-[82%] rounded-2xl px-4 py-2.5 ${fontSize} leading-relaxed whitespace-pre-wrap ${
-                      m.role === 'user' ? 'bg-indigo-600 text-white rounded-br-xs' : 'bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-bl-xs'
-                    }`}>
-                      {m.content}
+              {/* Bottom Settings Icon */}
+              <button onClick={() => setSidebarTab('settings')} className="w-9 h-9 bg-[#242420] hover:bg-[#33332d] rounded-lg border border-[#33332d] flex items-center justify-center text-zinc-400">
+                ⚙️
+              </button>
+            </div>
+
+            {/* Sidebar Content Area */}
+            <div className="flex-1 flex flex-col h-full bg-[#181816] overflow-hidden">
+              {/* Top Sub Tabs (챗 / 캐릭터) */}
+              <div className="flex border-b border-[#2a2a24] p-2 gap-1 bg-[#161614]">
+                <button onClick={() => setSidebarTab('chat')} className={`flex-1 py-1.5 rounded text-xs font-semibold ${sidebarTab === 'chat' ? 'bg-[#2b2b25] text-amber-200/90' : 'text-zinc-500'}`}>챗</button>
+                <button onClick={() => setSidebarTab('character')} className={`flex-1 py-1.5 rounded text-xs font-semibold ${sidebarTab === 'character' ? 'bg-[#2b2b25] text-amber-200/90' : 'text-zinc-500'}`}>캐릭터</button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-3 space-y-4">
+                {/* CHAT TAB IN SIDEBAR */}
+                {sidebarTab === 'chat' && (
+                  <div className="space-y-3">
+                    <button onClick={handleNewSession} className="w-full py-2 bg-[#2a2a24] hover:bg-[#33332c] text-amber-100/90 rounded-md font-medium text-xs border border-[#383830]">
+                      새 채팅
+                    </button>
+
+                    <div className="space-y-1.5">
+                      {activeCharSessions.map(s => (
+                        <div key={s.id} onClick={() => { setActiveSessionId(s.id); setSidebarOpen(false); }} className={`flex items-center justify-between p-2.5 rounded-md cursor-pointer border ${activeSessionId === s.id ? 'bg-[#282822] border-amber-500/40 text-amber-200/90' : 'bg-[#1e1e1a] border-[#2a2a24] text-zinc-400'}`}>
+                          <span className="text-xs truncate font-medium">{s.name}</span>
+                          <span className="text-[10px] text-zinc-600">⋮</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                ))}
-                {loading && <div className="text-xs text-zinc-500 pl-9">AI 답변 작성 중...</div>}
-                <div ref={chatEndRef} />
-              </div>
+                )}
 
-              {/* Input */}
-              <div className="p-3 border-t border-zinc-800/80 bg-zinc-950">
-                <div className="flex items-center gap-2">
-                  <input 
-                    type="text" 
-                    value={input} 
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                    placeholder="메시지를 입력하세요..." 
-                    className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500"
-                  />
-                  <button onClick={handleSend} disabled={loading || !input.trim()} className="px-4 py-2.5 bg-indigo-600 font-semibold text-sm rounded-xl text-white disabled:opacity-40">전송</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* CHARACTER LIST TAB */}
-          {activeTab === 'char_list' && (
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
-                <h2 className="text-sm font-bold text-zinc-100">캐릭터 목록 ({characters.length})</h2>
-                <button onClick={handleAddCharacter} className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold">+ 캐릭터 추가</button>
-              </div>
-
-              <div className="space-y-3">
-                {characters.map(c => (
-                  <div key={c.id} className={`p-3 rounded-xl border flex items-center justify-between transition-all ${activeCharId === c.id ? 'bg-zinc-900 border-indigo-500/50' : 'bg-zinc-900/40 border-zinc-800'}`}>
-                    <div className="flex items-center gap-3 flex-1 overflow-hidden cursor-pointer" onClick={() => handleSelectCharacter(c.id)}>
-                      <img src={c.avatar} className="w-11 h-11 rounded-full object-cover shrink-0" />
-                      <div className="truncate">
-                        <h3 className="font-bold text-sm text-zinc-100">{c.name}</h3>
-                        <p className="text-xs text-zinc-400 truncate">{c.description}</p>
-                      </div>
+                {/* CHARACTER TAB IN SIDEBAR */}
+                {sidebarTab === 'character' && (
+                  <div className="space-y-3 text-xs">
+                    <div>
+                      <label className="text-zinc-500 block mb-1">Character Name</label>
+                      <input type="text" value={activeChar?.name} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, name: e.target.value } : c))} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-2 text-zinc-200" />
                     </div>
-                    <button onClick={() => { setActiveCharId(c.id); setActiveTab('char_edit'); }} className="ml-2 px-2.5 py-1 bg-zinc-800 text-zinc-300 rounded-lg text-xs font-semibold">설정 / 편집</button>
+                    <div>
+                      <label className="text-zinc-500 block mb-1">설명 ⑨</label>
+                      <textarea value={activeChar?.description} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, description: e.target.value } : c))} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-2 text-zinc-200 h-24" />
+                    </div>
+                    <div>
+                      <label className="text-zinc-500 block mb-1">첫 메시지 ⑨</label>
+                      <textarea value={activeChar?.firstMessage} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, firstMessage: e.target.value } : c))} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-2 text-zinc-200 h-24" />
+                    </div>
+                    <div>
+                      <label className="text-zinc-500 block mb-1">시스템 프롬프트</label>
+                      <textarea value={activeChar?.systemPrompt} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, systemPrompt: e.target.value } : c))} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-2 text-zinc-200 h-28" />
+                    </div>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                )}
 
-          {/* CHARACTER EDIT TAB */}
-          {activeTab === 'char_edit' && (
-            <div className="flex-1 overflow-y-auto p-4 space-y-5">
-              <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
-                <h2 className="text-sm font-bold text-zinc-100">{activeChar?.name} 설정 및 대화 기록</h2>
-                <button onClick={() => setActiveTab('char_list')} className="text-xs text-zinc-400">← 목록으로</button>
-              </div>
-
-              {/* Character Details Form */}
-              <div className="space-y-3 text-xs">
-                <div>
-                  <label className="text-zinc-400 font-semibold block mb-1">캐릭터 이름</label>
-                  <input type="text" value={activeChar?.name} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, name: e.target.value } : c))} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-2.5 text-sm text-zinc-100" />
-                </div>
-                <div>
-                  <label className="text-zinc-400 font-semibold block mb-1">프로필 이미지 URL</label>
-                  <input type="text" value={activeChar?.avatar} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, avatar: e.target.value } : c))} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-2.5 text-sm text-zinc-100" />
-                </div>
-                <div>
-                  <label className="text-zinc-400 font-semibold block mb-1">첫 메시지 (Greeting)</label>
-                  <textarea value={activeChar?.firstMessage} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, firstMessage: e.target.value } : c))} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-2.5 text-sm text-zinc-100 h-20" />
-                </div>
-                <div>
-                  <label className="text-zinc-400 font-semibold block mb-1">시스템 프롬프트 (성격/설정)</label>
-                  <textarea value={activeChar?.systemPrompt} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, systemPrompt: e.target.value } : c))} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-2.5 text-sm text-zinc-100 h-32" />
-                </div>
-              </div>
-
-              {/* Chat Sessions Category inside Character Settings */}
-              <div className="pt-3 border-t border-zinc-800 space-y-3">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-xs font-bold text-zinc-200">📂 이전 대화 목록 ({activeCharSessions.length})</h3>
-                  <button onClick={() => handleNewSession(activeCharId)} className="px-2.5 py-1 bg-indigo-600 text-white rounded-lg text-xs font-semibold">+ 새 대화 생성</button>
-                </div>
-                
-                <div className="space-y-2">
-                  {activeCharSessions.map(s => (
-                    <div key={s.id} className="flex items-center justify-between p-2.5 bg-zinc-900/60 border border-zinc-800/80 rounded-xl text-xs">
-                      <div className="flex items-center gap-2 cursor-pointer flex-1" onClick={() => { setActiveSessionId(s.id); setActiveTab('chat'); }}>
-                        <span className="text-indigo-400 font-semibold">{s.name}</span>
-                        <span className="text-[10px] text-zinc-500">({s.messages?.length || 0}개 메시지)</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => { setActiveSessionId(s.id); setActiveTab('chat'); }} className="px-2 py-1 bg-zinc-800 text-zinc-300 rounded-md font-semibold">대화하기</button>
-                        <button onClick={() => handleDeleteSession(activeCharId, s.id)} className="px-2 py-1 bg-rose-950/60 text-rose-400 border border-rose-900/40 rounded-md font-semibold">삭제</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* SETTINGS TAB */}
-          {activeTab === 'settings' && (
-            <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Settings Sub-Nav */}
-              <div className="flex bg-zinc-900 border-b border-zinc-800 px-4 py-2 text-xs font-semibold gap-2">
-                <button onClick={() => setSettingsSubTab('ai')} className={`px-3 py-1.5 rounded-lg ${settingsSubTab === 'ai' ? 'bg-indigo-600 text-white' : 'text-zinc-400'}`}>API & 파라미터</button>
-                <button onClick={() => setSettingsSubTab('persona')} className={`px-3 py-1.5 rounded-lg ${settingsSubTab === 'persona' ? 'bg-indigo-600 text-white' : 'text-zinc-400'}`}>유저 페르소나</button>
-                <button onClick={() => setSettingsSubTab('ui')} className={`px-3 py-1.5 rounded-lg ${settingsSubTab === 'ui' ? 'bg-indigo-600 text-white' : 'text-zinc-400'}`}>UI 설정</button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
-                {/* AI & PARAMETERS */}
-                {settingsSubTab === 'ai' && (
-                  <div className="space-y-4">
+                {/* SETTINGS TAB IN SIDEBAR */}
+                {sidebarTab === 'settings' && (
+                  <div className="space-y-3 text-xs">
                     <div>
-                      <label className="text-zinc-400 font-semibold block mb-1">Gemini API Key</label>
-                      <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="Google AI Studio API Key" className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-2.5 text-sm text-zinc-100" />
+                      <label className="text-zinc-400 block mb-1">Gemini API Key</label>
+                      <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-2 text-zinc-200" />
                     </div>
                     <div>
-                      <label className="text-zinc-400 font-semibold block mb-1">AI 모델</label>
-                      <select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-2.5 text-sm text-zinc-100">
+                      <label className="text-zinc-400 block mb-1">AI 모델</label>
+                      <select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-2 text-zinc-200">
                         {FLASH_MODELS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                       </select>
                     </div>
-                    <hr className="border-zinc-800" />
+                    <hr className="border-[#2a2a24]" />
                     <div>
-                      <div className="flex justify-between mb-1"><span className="text-zinc-400">Temperature (창의성)</span><span className="text-indigo-400 font-mono">{temp}</span></div>
-                      <input type="range" min="0" max="2" step="0.05" value={temp} onChange={(e) => setTemp(parseFloat(e.target.value))} className="w-full accent-indigo-500" />
+                      <label className="text-zinc-400 block mb-1">유저 이름 (User Name)</label>
+                      <input type="text" value={userName} onChange={(e) => setUserName(e.target.value)} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-2 text-zinc-200" />
                     </div>
                     <div>
-                      <div className="flex justify-between mb-1"><span className="text-zinc-400">Top-P</span><span className="text-indigo-400 font-mono">{topP}</span></div>
-                      <input type="range" min="0" max="1" step="0.05" value={topP} onChange={(e) => setTopP(parseFloat(e.target.value))} className="w-full accent-indigo-500" />
-                    </div>
-                    <div>
-                      <div className="flex justify-between mb-1"><span className="text-zinc-400">Top-K</span><span className="text-indigo-400 font-mono">{topK}</span></div>
-                      <input type="range" min="1" max="100" step="1" value={topK} onChange={(e) => setTopK(parseInt(e.target.value))} className="w-full accent-indigo-500" />
-                    </div>
-                    <div>
-                      <div className="flex justify-between mb-1"><span className="text-zinc-400">Presence Penalty</span><span className="text-indigo-400 font-mono">{presencePenalty}</span></div>
-                      <input type="range" min="-2" max="2" step="0.1" value={presencePenalty} onChange={(e) => setPresencePenalty(parseFloat(e.target.value))} className="w-full accent-indigo-500" />
-                    </div>
-                    <div>
-                      <div className="flex justify-between mb-1"><span className="text-zinc-400">Frequency Penalty</span><span className="text-indigo-400 font-mono">{frequencyPenalty}</span></div>
-                      <input type="range" min="-2" max="2" step="0.1" value={frequencyPenalty} onChange={(e) => setFrequencyPenalty(parseFloat(e.target.value))} className="w-full accent-indigo-500" />
-                    </div>
-                  </div>
-                )}
-
-                {/* USER PERSONA (SPLIT USER NAME & PERSONA) */}
-                {settingsSubTab === 'persona' && (
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-zinc-400 font-semibold block mb-1">유저 이름 (Name)</label>
-                      <input type="text" value={userName} onChange={(e) => setUserName(e.target.value)} placeholder="예: 홍길동" className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-2.5 text-sm text-zinc-100 focus:border-indigo-500" />
-                    </div>
-                    <div>
-                      <label className="text-zinc-400 font-semibold block mb-1">유저 페르소나 (Persona Description)</label>
-                      <textarea value={userPersona} onChange={(e) => setUserPersona(e.target.value)} placeholder="AI가 나를 어떻게 인식하길 원하는지 성격, 직업, 말투 등을 입력하세요." className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-sm text-zinc-100 h-36 focus:border-indigo-500" />
-                    </div>
-                  </div>
-                )}
-
-                {/* UI SETTINGS */}
-                {settingsSubTab === 'ui' && (
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-zinc-400 font-semibold block mb-1">채팅 글자 크기</label>
-                      <select value={fontSize} onChange={(e) => setFontSize(e.target.value)} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-2.5 text-sm text-zinc-100">
-                        <option value="text-xs">작게 (12px)</option>
-                        <option value="text-sm">보통 (14px)</option>
-                        <option value="text-base">크게 (16px)</option>
-                      </select>
+                      <label className="text-zinc-400 block mb-1">유저 페르소나 (User Persona)</label>
+                      <textarea value={userPersona} onChange={(e) => setUserPersona(e.target.value)} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-2 text-zinc-200 h-24" />
                     </div>
                   </div>
                 )}
               </div>
             </div>
-          )}
+          </div>
+
+          {/* MAIN CHAT AREA */}
+          <div className="flex-1 flex flex-col h-full relative">
+            
+            {/* Top Navigation Button */}
+            <div className="p-3 flex items-center">
+              <button onClick={() => setSidebarOpen(true)} className="p-2 bg-[#252520] hover:bg-[#30302a] border border-[#33332c] rounded-md text-zinc-300 flex items-center justify-center">
+                &rarr;
+              </button>
+            </div>
+
+            {/* Chat Body */}
+            <div className="flex-1 overflow-y-auto px-4 py-2 space-y-4">
+              {currentSession.messages?.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-center text-zinc-500 space-y-2">
+                  <p className="text-xs">콘텐츠는 AI로 생성되며 부정확하거나 편향된 정보가 포함될 수 있습니다.</p>
+                  <p className="text-xs">무언가 입력하여 채팅을 시작하세요.</p>
+                </div>
+              ) : (
+                currentSession.messages?.map((m) => (
+                  <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[85%] p-3 rounded-lg leading-relaxed text-xs whitespace-pre-wrap ${m.role === 'user' ? 'bg-[#2b2a22] text-amber-100 border border-[#38372d]' : 'bg-[#181816] text-zinc-300 border border-[#282824]'}`}>
+                      {m.content}
+                    </div>
+                  </div>
+                ))
+              )}
+              {loading && <div className="text-xs text-zinc-500">답변 작성 중...</div>}
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Bottom Input Area (RisuAI Exact Style) */}
+            <div className="p-3 bg-[#181816] border-t border-[#262622]">
+              <div className="relative flex items-center bg-[#1e1e1a] border border-[#2e2e28] rounded-md p-2">
+                <input 
+                  type="text" 
+                  value={input} 
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                  placeholder="무언가 입력하여 채팅을 시작하세요." 
+                  className="w-full bg-transparent text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none pr-16"
+                />
+                <div className="absolute right-2 flex items-center space-x-2 text-zinc-500">
+                  <button onClick={handleSend} disabled={loading || !input.trim()} className="hover:text-zinc-200">
+                    ➔
+                  </button>
+                  <button onClick={() => setSidebarOpen(true)} className="hover:text-zinc-200">
+                    ≡
+                  </button>
+                </div>
+              </div>
+              <p className="text-[10px] text-center text-zinc-600 mt-2">콘텐츠는 AI로 생성되며 부정확하거나 편향된 정보가 포함될 수 있습니다.</p>
+            </div>
+
+          </div>
+
         </div>
       );
     }
