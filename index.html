@@ -128,6 +128,7 @@
 
       const [input, setInput] = useState('');
       const [loading, setLoading] = useState(false);
+      const isRequesting = useRef(false);
       const chatEndRef = useRef(null);
 
       // Sync LocalStorage
@@ -235,7 +236,7 @@
         }));
       };
 
-      // API Request Helper
+      // API Request Helper (과부하 발생 시 3.8 -> 3.7 -> 3.6 -> 3.5 순차 자동 전환)
       const fetchAIResponse = async (msgsToSend) => {
         let processedMainPrompt = RISU_BUILTIN_MAIN_PROMPT
           .replaceAll('{{char}}', activeChar?.name || 'Character')
@@ -252,7 +253,6 @@
           parts: [{ text: m.content }]
         }));
 
-        // Generation Parameters Config (thinkingConfig 제거)
         const generationConfig = {
           temperature: parseFloat(temperature),
           topP: parseFloat(topP),
@@ -260,29 +260,67 @@
           maxOutputTokens: parseInt(maxOutputTokens, 10)
         };
 
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${apiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: contents,
-            systemInstruction: { parts: [{ text: fullSystemInstruction }] },
-            generationConfig: generationConfig
-          })
-        });
+        // 선택된 모델을 1순위로 두고, 그 뒤로 하위 모델들을 순서대로 배치
+        const allModels = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash'];
+        const fallbackModels = [selectedModel, ...allModels.filter(m => m !== selectedModel)];
 
-        const data = await response.json();
-        if (data.error) throw new Error(data.error.message || 'API 오류');
-        return data.candidates?.[0]?.content?.parts?.[0]?.text || '답변을 생성할 수 없습니다.';
+        let lastErrorMessage = '';
+
+        for (let i = 0; i < fallbackModels.length; i++) {
+          const targetModel = fallbackModels[i];
+          try {
+            console.log(`[요청 ${i + 1}/${fallbackModels.length}] ${targetModel} 모델 사용 중...`);
+
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: contents,
+                systemInstruction: { parts: [{ text: fullSystemInstruction }] },
+                generationConfig: generationConfig
+              })
+            });
+
+            const data = await response.json();
+
+            if (data.error) {
+              const errMsg = data.error.message || '';
+              // 과부하 에러(429, 503, demand, quota 등)일 경우 다음 모델로 스위칭
+              if (response.status === 429 || response.status === 503 || errMsg.includes('demand') || errMsg.includes('quota')) {
+                lastErrorMessage = errMsg;
+                console.warn(`${targetModel} 과부하 발생. 다음 모델로 전환합니다...`);
+                continue;
+              }
+              throw new Error(errMsg || 'API 오류');
+            }
+
+            return data.candidates?.[0]?.content?.parts?.[0]?.text || '답변을 생성할 수 없습니다.';
+
+          } catch (err) {
+            if (i < fallbackModels.length - 1 && (err.message.includes('demand') || err.message.includes('fetch'))) {
+              lastErrorMessage = err.message;
+              continue;
+            }
+            throw err;
+          }
+        }
+
+        throw new Error(`모든 모델이 과부하 상태입니다. (${lastErrorMessage || '다시 시도해주세요.'})`);
       };
 
       const handleSend = async () => {
-        if (!input.trim() || loading) return;
+        if (!input.trim()) return;
+        if (loading || isRequesting.current) return;
+
         if (!apiKey) {
           alert('사이드바 메뉴 > 설정에서 Gemini API Key를 입력하세요.');
           setSidebarOpen(true);
           setSidebarTab('settings');
           return;
         }
+
+        isRequesting.current = true;
+        setLoading(true);
 
         const userMsg = input.trim();
         setInput('');
@@ -295,8 +333,6 @@
           [activeCharId]: (prev[activeCharId] || []).map(s => s.id === activeSessionId ? { ...s, messages: updatedMsgs } : s)
         }));
 
-        setLoading(true);
-
         try {
           const replyText = await fetchAIResponse(updatedMsgs);
           setChatSessions(prev => ({
@@ -306,21 +342,23 @@
         } catch (err) {
           alert('오류: ' + err.message);
         } finally {
+          isRequesting.current = false;
           setLoading(false);
         }
       };
 
       const handleRetry = async (msgIndex) => {
-        if (loading) return;
+        if (loading || isRequesting.current) return;
         if (!apiKey) {
           alert('설정에서 API Key를 확인하세요.');
           return;
         }
 
+        isRequesting.current = true;
+        setLoading(true);
+
         const currentMsgs = currentSession.messages || [];
         const targetMsgs = currentMsgs.slice(0, currentMsgs[msgIndex].role === 'model' ? msgIndex : msgIndex + 1);
-
-        setLoading(true);
 
         try {
           const replyText = await fetchAIResponse(targetMsgs);
@@ -331,6 +369,7 @@
         } catch (err) {
           alert('오류: ' + err.message);
         } finally {
+          isRequesting.current = false;
           setLoading(false);
         }
       };
@@ -445,7 +484,7 @@
                       <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200" />
                     </div>
                     <div>
-                      <label className="text-zinc-400 block mb-0.5">AI 모델</label>
+                      <label className="text-zinc-400 block mb-0.5">AI 모델 (1순위)</label>
                       <select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200">
                         {FLASH_MODELS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                       </select>
