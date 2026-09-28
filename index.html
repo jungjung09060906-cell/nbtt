@@ -32,9 +32,7 @@
       { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
       { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },
       { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash' },
-      { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash' },
-      { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro' },
-      { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' }
+      { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash' }
     ];
 
     const COLOR_PALETTE = [
@@ -238,7 +236,7 @@
         }));
       };
 
-      // API Request Helper (6개 모델 순차 전환: 3.8F -> 3.7F -> 3.6F -> 3.5F -> 3.1Pro -> 2.5Pro)
+      // API Request Helper (과부하 발생 시 3.8 -> 3.7 -> 3.6 -> 3.5 순차 자동 전환)
       const fetchAIResponse = async (msgsToSend) => {
         let processedMainPrompt = RISU_BUILTIN_MAIN_PROMPT
           .replaceAll('{{char}}', activeChar?.name || 'Character')
@@ -262,15 +260,8 @@
           maxOutputTokens: parseInt(maxOutputTokens, 10)
         };
 
-        const allModels = [
-          'gemini-3.8-flash',
-          'gemini-3.7-flash',
-          'gemini-3.6-flash',
-          'gemini-3.5-flash',
-          'gemini-3.1-pro',
-          'gemini-2.5-pro'
-        ];
-
+        // 선택된 모델을 1순위로 두고, 그 뒤로 하위 모델들을 순서대로 배치
+        const allModels = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash'];
         const fallbackModels = [selectedModel, ...allModels.filter(m => m !== selectedModel)];
 
         let lastErrorMessage = '';
@@ -294,6 +285,7 @@
 
             if (data.error) {
               const errMsg = data.error.message || '';
+              // 과부하 에러(429, 503, demand, quota 등)일 경우 다음 모델로 스위칭
               if (response.status === 429 || response.status === 503 || errMsg.includes('demand') || errMsg.includes('quota')) {
                 lastErrorMessage = errMsg;
                 console.warn(`${targetModel} 과부하 발생. 다음 모델로 전환합니다...`);
@@ -313,7 +305,7 @@
           }
         }
 
-        throw new Error(`6개 모델이 모두 과부하 상태입니다. (${lastErrorMessage || '잠시 후 다시 시도해주세요.'})`);
+        throw new Error(`모든 모델이 과부하 상태입니다. (${lastErrorMessage || '다시 시도해주세요.'})`);
       };
 
       const handleSend = async () => {
