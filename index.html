@@ -15,14 +15,15 @@
   <style>
     @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
     * { font-family: 'Pretendard', -apple-system, system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
-    body { background-color: #1e1e1a; color: #d4d4d0; }
+    html, body { height: 100%; height: 100dvh; overflow: hidden; background-color: #1e1e1a; color: #d4d4d0; }
+    #root { height: 100%; height: 100dvh; }
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #383832; border-radius: 4px; }
   </style>
 </head>
-<body class="h-screen overflow-hidden text-sm">
-  <div id="root" class="h-full"></div>
+<body class="text-sm">
+  <div id="root"></div>
 
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
@@ -191,29 +192,29 @@
       return (
         <div className="flex h-full w-full bg-[#1e1e1a] text-[#d4d4d0] relative overflow-hidden">
           
-          {/* LEFT SLIDING SIDEBAR (RISU AI EXACT STYLE) */}
-          <div className={`fixed inset-y-0 left-0 z-50 flex w-[320px] bg-[#181816] transition-transform duration-200 ease-in-out border-r border-[#2d2d28] ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+          {/* LEFT SLIDING SIDEBAR */}
+          <div className={`fixed inset-y-0 left-0 z-50 flex w-[280px] sm:w-[320px] bg-[#181816] transition-transform duration-200 ease-in-out border-r border-[#2d2d28] ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
             
             {/* Leftmost Vertical Icon Bar */}
-            <div className="w-[52px] bg-[#141412] flex flex-col items-center py-3 space-y-3 border-r border-[#262622] shrink-0">
-              <button onClick={() => setSidebarOpen(false)} className="w-9 h-9 flex items-center justify-center bg-[#282824] hover:bg-[#33332d] rounded-lg text-zinc-300">
+            <div className="w-[48px] bg-[#141412] flex flex-col items-center py-2 space-y-2 border-r border-[#262622] shrink-0">
+              <button onClick={() => setSidebarOpen(false)} className="w-8 h-8 flex items-center justify-center bg-[#282824] hover:bg-[#33332d] rounded-lg text-zinc-300">
                 &larr;
               </button>
               
-              <div className="w-full border-t border-[#262622] my-1"></div>
+              <div className="w-full border-t border-[#262622] my-0.5"></div>
 
               {/* Character Avatars list */}
               <div className="flex-1 overflow-y-auto space-y-2 w-full flex flex-col items-center">
                 {characters.map(c => (
-                  <button key={c.id} onClick={() => handleSelectCharacter(c.id)} className={`w-9 h-9 rounded-lg overflow-hidden border ${activeCharId === c.id ? 'border-amber-500/80 ring-1 ring-amber-500/50' : 'border-[#33332d]'}`}>
+                  <button key={c.id} onClick={() => handleSelectCharacter(c.id)} className={`w-8 h-8 rounded-lg overflow-hidden border ${activeCharId === c.id ? 'border-amber-500/80 ring-1 ring-amber-500/50' : 'border-[#33332d]'}`}>
                     <img src={c.avatar} className="w-full h-full object-cover" />
                   </button>
                 ))}
-                <button onClick={handleAddCharacter} className="w-9 h-9 bg-[#242420] hover:bg-[#33332d] rounded-lg border border-[#33332d] flex items-center justify-center text-zinc-400 font-bold">+</button>
+                <button onClick={handleAddCharacter} className="w-8 h-8 bg-[#242420] hover:bg-[#33332d] rounded-lg border border-[#33332d] flex items-center justify-center text-zinc-400 font-bold">+</button>
               </div>
 
               {/* Bottom Settings Icon */}
-              <button onClick={() => setSidebarTab('settings')} className="w-9 h-9 bg-[#242420] hover:bg-[#33332d] rounded-lg border border-[#33332d] flex items-center justify-center text-zinc-400">
+              <button onClick={() => setSidebarTab('settings')} className="w-8 h-8 bg-[#242420] hover:bg-[#33332d] rounded-lg border border-[#33332d] flex items-center justify-center text-zinc-400">
                 ⚙️
               </button>
             </div>
@@ -221,22 +222,22 @@
             {/* Sidebar Content Area */}
             <div className="flex-1 flex flex-col h-full bg-[#181816] overflow-hidden">
               {/* Top Sub Tabs (챗 / 캐릭터) */}
-              <div className="flex border-b border-[#2a2a24] p-2 gap-1 bg-[#161614]">
-                <button onClick={() => setSidebarTab('chat')} className={`flex-1 py-1.5 rounded text-xs font-semibold ${sidebarTab === 'chat' ? 'bg-[#2b2b25] text-amber-200/90' : 'text-zinc-500'}`}>챗</button>
-                <button onClick={() => setSidebarTab('character')} className={`flex-1 py-1.5 rounded text-xs font-semibold ${sidebarTab === 'character' ? 'bg-[#2b2b25] text-amber-200/90' : 'text-zinc-500'}`}>캐릭터</button>
+              <div className="flex border-b border-[#2a2a24] p-1.5 gap-1 bg-[#161614]">
+                <button onClick={() => setSidebarTab('chat')} className={`flex-1 py-1 rounded text-xs font-semibold ${sidebarTab === 'chat' ? 'bg-[#2b2b25] text-amber-200/90' : 'text-zinc-500'}`}>챗</button>
+                <button onClick={() => setSidebarTab('character')} className={`flex-1 py-1 rounded text-xs font-semibold ${sidebarTab === 'character' ? 'bg-[#2b2b25] text-amber-200/90' : 'text-zinc-500'}`}>캐릭터</button>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-3 space-y-4">
+              <div className="flex-1 overflow-y-auto p-2.5 space-y-3">
                 {/* CHAT TAB IN SIDEBAR */}
                 {sidebarTab === 'chat' && (
-                  <div className="space-y-3">
-                    <button onClick={handleNewSession} className="w-full py-2 bg-[#2a2a24] hover:bg-[#33332c] text-amber-100/90 rounded-md font-medium text-xs border border-[#383830]">
+                  <div className="space-y-2">
+                    <button onClick={handleNewSession} className="w-full py-1.5 bg-[#2a2a24] hover:bg-[#33332c] text-amber-100/90 rounded-md font-medium text-xs border border-[#383830]">
                       새 채팅
                     </button>
 
-                    <div className="space-y-1.5">
+                    <div className="space-y-1">
                       {activeCharSessions.map(s => (
-                        <div key={s.id} onClick={() => { setActiveSessionId(s.id); setSidebarOpen(false); }} className={`flex items-center justify-between p-2.5 rounded-md cursor-pointer border ${activeSessionId === s.id ? 'bg-[#282822] border-amber-500/40 text-amber-200/90' : 'bg-[#1e1e1a] border-[#2a2a24] text-zinc-400'}`}>
+                        <div key={s.id} onClick={() => { setActiveSessionId(s.id); setSidebarOpen(false); }} className={`flex items-center justify-between p-2 rounded-md cursor-pointer border ${activeSessionId === s.id ? 'bg-[#282822] border-amber-500/40 text-amber-200/90' : 'bg-[#1e1e1a] border-[#2a2a24] text-zinc-400'}`}>
                           <span className="text-xs truncate font-medium">{s.name}</span>
                           <span className="text-[10px] text-zinc-600">⋮</span>
                         </div>
@@ -247,47 +248,47 @@
 
                 {/* CHARACTER TAB IN SIDEBAR */}
                 {sidebarTab === 'character' && (
-                  <div className="space-y-3 text-xs">
+                  <div className="space-y-2.5 text-xs">
                     <div>
-                      <label className="text-zinc-500 block mb-1">Character Name</label>
-                      <input type="text" value={activeChar?.name} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, name: e.target.value } : c))} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-2 text-zinc-200" />
+                      <label className="text-zinc-500 block mb-0.5">Character Name</label>
+                      <input type="text" value={activeChar?.name} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, name: e.target.value } : c))} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200" />
                     </div>
                     <div>
-                      <label className="text-zinc-500 block mb-1">설명 ⑨</label>
-                      <textarea value={activeChar?.description} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, description: e.target.value } : c))} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-2 text-zinc-200 h-24" />
+                      <label className="text-zinc-500 block mb-0.5">설명 ⑨</label>
+                      <textarea value={activeChar?.description} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, description: e.target.value } : c))} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200 h-16" />
                     </div>
                     <div>
-                      <label className="text-zinc-500 block mb-1">첫 메시지 ⑨</label>
-                      <textarea value={activeChar?.firstMessage} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, firstMessage: e.target.value } : c))} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-2 text-zinc-200 h-24" />
+                      <label className="text-zinc-500 block mb-0.5">첫 메시지 ⑨</label>
+                      <textarea value={activeChar?.firstMessage} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, firstMessage: e.target.value } : c))} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200 h-16" />
                     </div>
                     <div>
-                      <label className="text-zinc-500 block mb-1">시스템 프롬프트</label>
-                      <textarea value={activeChar?.systemPrompt} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, systemPrompt: e.target.value } : c))} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-2 text-zinc-200 h-28" />
+                      <label className="text-zinc-500 block mb-0.5">시스템 프롬프트</label>
+                      <textarea value={activeChar?.systemPrompt} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, systemPrompt: e.target.value } : c))} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200 h-20" />
                     </div>
                   </div>
                 )}
 
                 {/* SETTINGS TAB IN SIDEBAR */}
                 {sidebarTab === 'settings' && (
-                  <div className="space-y-3 text-xs">
+                  <div className="space-y-2.5 text-xs">
                     <div>
-                      <label className="text-zinc-400 block mb-1">Gemini API Key</label>
-                      <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-2 text-zinc-200" />
+                      <label className="text-zinc-400 block mb-0.5">Gemini API Key</label>
+                      <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200" />
                     </div>
                     <div>
-                      <label className="text-zinc-400 block mb-1">AI 모델</label>
-                      <select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-2 text-zinc-200">
+                      <label className="text-zinc-400 block mb-0.5">AI 모델</label>
+                      <select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200">
                         {FLASH_MODELS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                       </select>
                     </div>
                     <hr className="border-[#2a2a24]" />
                     <div>
-                      <label className="text-zinc-400 block mb-1">유저 이름 (User Name)</label>
-                      <input type="text" value={userName} onChange={(e) => setUserName(e.target.value)} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-2 text-zinc-200" />
+                      <label className="text-zinc-400 block mb-0.5">유저 이름 (User Name)</label>
+                      <input type="text" value={userName} onChange={(e) => setUserName(e.target.value)} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200" />
                     </div>
                     <div>
-                      <label className="text-zinc-400 block mb-1">유저 페르소나 (User Persona)</label>
-                      <textarea value={userPersona} onChange={(e) => setUserPersona(e.target.value)} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-2 text-zinc-200 h-24" />
+                      <label className="text-zinc-400 block mb-0.5">유저 페르소나 (User Persona)</label>
+                      <textarea value={userPersona} onChange={(e) => setUserPersona(e.target.value)} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200 h-20" />
                     </div>
                   </div>
                 )}
@@ -296,26 +297,26 @@
           </div>
 
           {/* MAIN CHAT AREA */}
-          <div className="flex-1 flex flex-col h-full relative">
+          <div className="flex-1 flex flex-col h-full relative overflow-hidden">
             
             {/* Top Navigation Button */}
-            <div className="p-3 flex items-center">
-              <button onClick={() => setSidebarOpen(true)} className="p-2 bg-[#252520] hover:bg-[#30302a] border border-[#33332c] rounded-md text-zinc-300 flex items-center justify-center">
+            <div className="p-2 flex items-center shrink-0">
+              <button onClick={() => setSidebarOpen(true)} className="p-1.5 bg-[#252520] hover:bg-[#30302a] border border-[#33332c] rounded-md text-zinc-300 flex items-center justify-center">
                 &rarr;
               </button>
             </div>
 
             {/* Chat Body */}
-            <div className="flex-1 overflow-y-auto px-4 py-2 space-y-4">
+            <div className="flex-1 overflow-y-auto px-3 py-1 space-y-3">
               {currentSession.messages?.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-center text-zinc-500 space-y-2">
+                <div className="h-full flex flex-col items-center justify-center text-center text-zinc-500 space-y-1">
                   <p className="text-xs">콘텐츠는 AI로 생성되며 부정확하거나 편향된 정보가 포함될 수 있습니다.</p>
                   <p className="text-xs">무언가 입력하여 채팅을 시작하세요.</p>
                 </div>
               ) : (
                 currentSession.messages?.map((m) => (
                   <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[85%] p-3 rounded-lg leading-relaxed text-xs whitespace-pre-wrap ${m.role === 'user' ? 'bg-[#2b2a22] text-amber-100 border border-[#38372d]' : 'bg-[#181816] text-zinc-300 border border-[#282824]'}`}>
+                    <div className={`max-w-[88%] p-2.5 rounded-lg leading-relaxed text-xs whitespace-pre-wrap ${m.role === 'user' ? 'bg-[#2b2a22] text-amber-100 border border-[#38372d]' : 'bg-[#181816] text-zinc-300 border border-[#282824]'}`}>
                       {m.content}
                     </div>
                   </div>
@@ -325,16 +326,16 @@
               <div ref={chatEndRef} />
             </div>
 
-            {/* Bottom Input Area (RisuAI Exact Style) */}
-            <div className="p-3 bg-[#181816] border-t border-[#262622]">
-              <div className="relative flex items-center bg-[#1e1e1a] border border-[#2e2e28] rounded-md p-2">
+            {/* Bottom Input Area */}
+            <div className="p-2.5 bg-[#181816] border-t border-[#262622] shrink-0">
+              <div className="relative flex items-center bg-[#1e1e1a] border border-[#2e2e28] rounded-md p-1.5">
                 <input 
                   type="text" 
                   value={input} 
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleSend()}
                   placeholder="무언가 입력하여 채팅을 시작하세요." 
-                  className="w-full bg-transparent text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none pr-16"
+                  className="w-full bg-transparent text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none pr-14"
                 />
                 <div className="absolute right-2 flex items-center space-x-2 text-zinc-500">
                   <button onClick={handleSend} disabled={loading || !input.trim()} className="hover:text-zinc-200">
@@ -345,7 +346,7 @@
                   </button>
                 </div>
               </div>
-              <p className="text-[10px] text-center text-zinc-600 mt-2">콘텐츠는 AI로 생성되며 부정확하거나 편향된 정보가 포함될 수 있습니다.</p>
+              <p className="text-[9px] text-center text-zinc-600 mt-1">콘텐츠는 AI로 생성되며 부정확하거나 편향된 정보가 포함될 수 있습니다.</p>
             </div>
 
           </div>
