@@ -28,7 +28,7 @@
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
-    // Flash 3.8 ~ 3.5 모델 4개만 구성 (Pro 제외)
+    // Flash 3.8 ~ 3.5 모델 4개 구성
     const FLASH_MODELS = [
       { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
       { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },
@@ -237,7 +237,7 @@
         }));
       };
 
-      // API Request Helper (Pro 완전히 제외, Flash 3.8 -> 3.7 -> 3.6 -> 3.5 순차 전환 + 까이면 1.5초 후 재시도)
+      // API Request Helper (1, 2번 적용: 첫 메시지 프롬프트 합성 + 검열 해제 + 3.8~3.5 Flash 1.5초 폴백)
       const fetchAIResponse = async (msgsToSend) => {
         let processedMainPrompt = RISU_BUILTIN_MAIN_PROMPT
           .replaceAll('{{char}}', activeChar?.name || 'Character')
@@ -247,12 +247,19 @@
           .replaceAll('{{char}}', activeChar?.name || 'Character')
           .replaceAll('{{user}}', userName || 'User');
 
-        const fullSystemInstruction = `${processedMainPrompt}\n\n[Character Setting: ${activeChar?.name}]\nDescription: ${activeChar?.description || ''}\nPersonality & Rules: ${charPrompt}\n\n[User Info]\nName: ${userName}\nPersona: ${userPersona}`;
+        const systemText = `${processedMainPrompt}\n\n[Character Setting: ${activeChar?.name}]\nDescription: ${activeChar?.description || ''}\nPersonality & Rules: ${charPrompt}\n\n[User Info]\nName: ${userName}\nPersona: ${userPersona}`;
 
-        const contents = msgsToSend.map(m => ({
-          role: m.role === 'user' ? 'user' : 'model',
-          parts: [{ text: m.content }]
-        }));
+        // RisuAI 방식: 시스템 프롬프트를 첫 메시지에 내장시켜 거절 확률 최소화
+        const formattedContents = msgsToSend.map((m, idx) => {
+          let textContent = m.content;
+          if (idx === 0) {
+            textContent = `[System Prompt]\n${systemText}\n\n[Chat Start]\n${m.content}`;
+          }
+          return {
+            role: m.role === 'user' ? 'user' : 'model',
+            parts: [{ text: textContent }]
+          };
+        });
 
         const generationConfig = {
           temperature: parseFloat(temperature),
@@ -261,7 +268,15 @@
           maxOutputTokens: parseInt(maxOutputTokens, 10)
         };
 
-        // Flash 계열 4개 모델 순서
+        // RisuAI 검열 해제 필터
+        const safetySettings = [
+          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+        ];
+
+        // Flash 계열 4개 모델 순회
         const allModels = [
           'gemini-3.8-flash',
           'gemini-3.7-flash',
@@ -269,7 +284,6 @@
           'gemini-3.5-flash'
         ];
 
-        // 설정에서 선택한 모델을 최우선으로 배치
         const fallbackModels = [selectedModel, ...allModels.filter(m => m !== selectedModel)];
         let lastErrorMessage = '';
 
@@ -282,29 +296,33 @@
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                contents: contents,
-                systemInstruction: { parts: [{ text: fullSystemInstruction }] },
-                generationConfig: generationConfig
+                contents: formattedContents,
+                generationConfig: generationConfig,
+                safetySettings: safetySettings
               })
             });
 
             const data = await response.json();
 
             if (data.error) {
-              const errMsg = data.error.message || '';
-              lastErrorMessage = errMsg;
-              console.warn(`[거절됨] ${targetModel} 실패: ${errMsg}. 1.5초 대기 후 다음 모델로 넘어갑니다...`);
-
-              // 까였을 때 바로 연속 요청하면 구글이 차단하므로 1.5초 딜레이 추가
+              lastErrorMessage = data.error.message || '';
+              console.warn(`[거절됨] ${targetModel}: ${lastErrorMessage}. 1.5초 대기 후 다음 모델 시도...`);
               await new Promise(resolve => setTimeout(resolve, 1500));
               continue;
             }
 
-            return data.candidates?.[0]?.content?.parts?.[0]?.text || '답변을 생성할 수 없습니다.';
+            const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!reply) {
+              lastErrorMessage = '답변 텍스트가 비어있거나 차단되었습니다.';
+              await new Promise(resolve => setTimeout(resolve, 1500));
+              continue;
+            }
+
+            return reply;
 
           } catch (err) {
             lastErrorMessage = err.message;
-            console.warn(`[네트워크/API 오류] ${targetModel}: ${err.message}`);
+            console.warn(`[오류] ${targetModel}: ${err.message}`);
             await new Promise(resolve => setTimeout(resolve, 1500));
             continue;
           }
