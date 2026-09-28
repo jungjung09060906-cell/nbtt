@@ -35,11 +35,22 @@
       { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash' }
     ];
 
+    // 무지개 단색 프사 컬러 뱅크
+    const COLOR_PALETTE = [
+      '#EF4444', // Red
+      '#F97316', // Orange
+      '#EAB308', // Yellow
+      '#22C55E', // Green
+      '#3B82F6', // Blue
+      '#6366F1', // Indigo
+      '#A855F7'  // Purple
+    ];
+
     const DEFAULT_CHARACTERS = [
       {
         id: 'char-1',
         name: 'Character Name',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200',
+        avatarColor: '#EF4444',
         description: '캐릭터 설명을 입력하세요',
         firstMessage: '안녕하세요. 무엇을 도와드릴까요?',
         systemPrompt: '너는 친절하고 다정한 인공지능 어시스턴트이다.'
@@ -85,7 +96,7 @@
         const initChar = DEFAULT_CHARACTERS[0];
         return {
           [initChar.id]: [
-            { id: 'session-1', name: 'Chat 1', messages: [{ id: 1, role: 'model', content: initChar.firstMessage }] }
+            { id: 'session-1', name: 'Chat 1', messages: [{ id: 'init-msg', role: 'model', content: initChar.firstMessage }] }
           ]
         };
       });
@@ -112,13 +123,32 @@
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, [currentSession.messages]);
 
+      // Handle First Message Update Across Chat Sessions
+      const handleFirstMessageChange = (newFirstMsg) => {
+        setCharacters(characters.map(c => c.id === activeCharId ? { ...c, firstMessage: newFirstMsg } : c));
+        
+        // 동기화: 첫 메시지(인덱스 0) 내용 수정
+        setChatSessions(prev => {
+          const charSessions = prev[activeCharId] || [];
+          const updatedSessions = charSessions.map(sess => {
+            if (sess.messages && sess.messages.length > 0 && sess.messages[0].id === 'init-msg') {
+              const newMsgs = [...sess.messages];
+              newMsgs[0] = { ...newMsgs[0], content: newFirstMsg };
+              return { ...sess, messages: newMsgs };
+            }
+            return sess;
+          });
+          return { ...prev, [activeCharId]: updatedSessions };
+        });
+      };
+
       // Select Character
       const handleSelectCharacter = (charId) => {
         setActiveCharId(charId);
         let sessions = chatSessions[charId];
         if (!sessions || sessions.length === 0) {
           const char = characters.find(c => c.id === charId);
-          const newSess = { id: `session-${Date.now()}`, name: 'Chat 1', messages: [{ id: 1, role: 'model', content: char?.firstMessage || '안녕하세요!' }] };
+          const newSess = { id: `session-${Date.now()}`, name: 'Chat 1', messages: [{ id: 'init-msg', role: 'model', content: char?.firstMessage || '안녕하세요!' }] };
           setChatSessions(prev => ({ ...prev, [charId]: [newSess] }));
           setActiveSessionId(newSess.id);
         } else {
@@ -132,18 +162,19 @@
         const newSess = {
           id: `session-${Date.now()}`,
           name: `Chat ${targetSessions.length + 1}`,
-          messages: [{ id: Date.now(), role: 'model', content: activeChar.firstMessage }]
+          messages: [{ id: 'init-msg', role: 'model', content: activeChar.firstMessage }]
         };
         setChatSessions(prev => ({ ...prev, [activeCharId]: [...(prev[activeCharId] || []), newSess] }));
         setActiveSessionId(newSess.id);
       };
 
-      // Add New Character
+      // Add New Character with Solid Colors
       const handleAddCharacter = () => {
+        const nextColor = COLOR_PALETTE[characters.length % COLOR_PALETTE.length];
         const newChar = {
           id: `char-${Date.now()}`,
           name: 'New Character',
-          avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200',
+          avatarColor: nextColor,
           description: '',
           firstMessage: '안녕하세요!',
           systemPrompt: '너는 AI 어시스턴트이다.'
@@ -167,7 +198,6 @@
           setChatSessions(newSessions);
 
           handleSelectCharacter(newChars[0].id);
-          alert('삭제되었습니다.');
         }
       };
 
@@ -256,7 +286,6 @@
         }
 
         const currentMsgs = currentSession.messages || [];
-        // 만약 대상이 AI 메시지라면 바로 전 유저 메시지까지, 유저 메시지라면 해당 유저 메시지까지 포함
         const targetMsgs = currentMsgs.slice(0, currentMsgs[msgIndex].role === 'model' ? msgIndex : msgIndex + 1);
 
         setLoading(true);
@@ -288,11 +317,16 @@
               
               <div className="w-full border-t border-[#262622] my-0.5"></div>
 
-              {/* Character Avatars list */}
+              {/* Character Solid Color Avatars List */}
               <div className="flex-1 overflow-y-auto space-y-2 w-full flex flex-col items-center">
                 {characters.map(c => (
-                  <button key={c.id} onClick={() => handleSelectCharacter(c.id)} className={`w-8 h-8 rounded-lg overflow-hidden border ${activeCharId === c.id ? 'border-amber-500/80 ring-1 ring-amber-500/50' : 'border-[#33332d]'}`}>
-                    <img src={c.avatar} className="w-full h-full object-cover" />
+                  <button 
+                    key={c.id} 
+                    onClick={() => handleSelectCharacter(c.id)} 
+                    style={{ backgroundColor: c.avatarColor || '#EF4444' }} 
+                    className={`w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-xs shadow-inner border ${activeCharId === c.id ? 'border-amber-400 ring-2 ring-amber-400/50 scale-105' : 'border-black/20'}`}
+                  >
+                    {c.name ? c.name[0].toUpperCase() : 'C'}
                   </button>
                 ))}
                 <button onClick={handleAddCharacter} className="w-8 h-8 bg-[#242420] hover:bg-[#33332d] rounded-lg border border-[#33332d] flex items-center justify-center text-zinc-400 font-bold">+</button>
@@ -344,7 +378,7 @@
                     </div>
                     <div>
                       <label className="text-zinc-500 block mb-0.5">첫 메시지 ⑨</label>
-                      <textarea value={activeChar?.firstMessage} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, firstMessage: e.target.value } : c))} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200 h-16" />
+                      <textarea value={activeChar?.firstMessage} onChange={(e) => handleFirstMessageChange(e.target.value)} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200 h-16" />
                     </div>
                     <div>
                       <label className="text-zinc-500 block mb-0.5">시스템 프롬프트</label>
@@ -418,19 +452,25 @@
                   <p className="text-xs">무언가 입력하여 채팅을 시작하세요.</p>
                 </div>
               ) : (
-                currentSession.messages?.map((m, idx) => (
-                  <div key={m.id} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-                    <div className={`max-w-[88%] p-2.5 rounded-lg leading-relaxed relative group whitespace-pre-wrap ${m.role === 'user' ? 'bg-[#2b2a22] text-amber-100 border border-[#38372d]' : 'bg-[#181816] text-zinc-300 border border-[#282824]'}`}>
-                      {m.content}
-                      
-                      {/* Message Control Buttons */}
-                      <div className="flex items-center space-x-2 justify-end mt-1.5 pt-1 border-t border-zinc-700/30 text-[10px] text-zinc-500">
-                        <button onClick={() => handleRetry(idx)} className="hover:text-amber-300 transition">🔄 다시시도</button>
-                        <button onClick={() => handleDeleteMessage(m.id)} className="hover:text-red-400 transition">🗑️ 삭제</button>
+                currentSession.messages?.map((m, idx) => {
+                  const isFirstMsg = idx === 0 && m.id === 'init-msg';
+                  return (
+                    <div key={m.id} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
+                      <div className={`max-w-[88%] p-2.5 rounded-lg leading-relaxed relative group whitespace-pre-wrap ${m.role === 'user' ? 'bg-[#2b2a22] text-amber-100 border border-[#38372d]' : 'bg-[#181816] text-zinc-300 border border-[#282824]'}`}>
+                        {m.content}
+                        
+                        {/* Message Control Buttons */}
+                        <div className="flex items-center space-x-2 justify-end mt-1.5 pt-1 border-t border-zinc-700/30 text-[10px] text-zinc-500">
+                          <button onClick={() => handleRetry(idx)} className="hover:text-amber-300 transition">🔄 다시시도</button>
+                          {/* 첫 메시지는 삭제 버튼 미표시 */}
+                          {!isFirstMsg && (
+                            <button onClick={() => handleDeleteMessage(m.id)} className="hover:text-red-400 transition">🗑️ 삭제</button>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
               {loading && <div className="text-xs text-zinc-500">답변 작성 중...</div>}
               <div ref={chatEndRef} />
@@ -445,14 +485,20 @@
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleSend()}
                   placeholder="무언가 입력하여 채팅을 시작하세요." 
-                  className="w-full bg-transparent text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none pr-14"
+                  className="w-full bg-transparent text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none pr-28"
                   style={{ fontSize: `${textScale}px` }}
                 />
-                <div className="absolute right-2 flex items-center space-x-2 text-zinc-500">
-                  <button onClick={handleSend} disabled={loading || !input.trim()} className="hover:text-zinc-200">
-                    ➔
+                
+                {/* 우측 버튼 영역 (크고 누르기 편한 전송 버튼) */}
+                <div className="absolute right-1 flex items-center space-x-1 text-zinc-400">
+                  <button 
+                    onClick={handleSend} 
+                    disabled={loading || !input.trim()} 
+                    className="px-3 py-1.5 bg-amber-600/80 hover:bg-amber-500 text-white rounded font-bold text-xs transition disabled:opacity-30 disabled:hover:bg-amber-600/80"
+                  >
+                    전송 ➔
                   </button>
-                  <button onClick={() => setSidebarOpen(true)} className="hover:text-zinc-200">
+                  <button onClick={() => setSidebarOpen(true)} className="p-1.5 hover:text-zinc-200 text-base">
                     ≡
                   </button>
                 </div>
