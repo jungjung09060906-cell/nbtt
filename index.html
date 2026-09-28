@@ -252,15 +252,12 @@
           parts: [{ text: m.content }]
         }));
 
-        // Generation Parameters Config
+        // Generation Parameters Config (thinkingConfig 제거)
         const generationConfig = {
           temperature: parseFloat(temperature),
           topP: parseFloat(topP),
           topK: parseInt(topK, 10),
-          maxOutputTokens: parseInt(maxOutputTokens, 10),
-          thinkingConfig: {
-            reasoningEffort: reasoningEffort.toUpperCase()
-          }
+          maxOutputTokens: parseInt(maxOutputTokens, 10)
         };
 
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:generateContent?key=${apiKey}`, {
