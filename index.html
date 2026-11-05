@@ -1,670 +1,282 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="theme-color" content="#181816" />
-  <title>RisuAI Native Web</title>
-  
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
-  
-  <style>
-    @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
-    * { font-family: 'Pretendard', -apple-system, system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
-    html, body { height: 100%; height: 100dvh; overflow: hidden; background-color: #1e1e1a; color: #d4d4d0; }
-    #root { height: 100%; height: 100dvh; }
-    ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #383832; border-radius: 4px; }
-  </style>
-</head>
-<body>
-  <div id="root"></div>
-
-  <script type="text/babel">
-    const { useState, useEffect, useRef } = React;
-
-    // Flash 3.8 ~ 3.5 모델 4개 구성
-    const FLASH_MODELS = [
-      { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash' },
-      { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },
-      { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash' },
-      { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash' }
-    ];
-
-    const COLOR_PALETTE = [
-      '#EF4444', '#F97316', '#EAB308', '#22C55E', '#3B82F6', '#6366F1', '#A855F7'
-    ];
-
-    const DEFAULT_CHARACTERS = [
-      {
-        id: 'char-1',
-        name: 'Character Name',
-        avatarColor: '#EF4444',
-        description: '캐릭터 설명을 입력하세요',
-        firstMessage: '*살며시 미소를 지으며 너를 바라본다.* 안녕, 오늘 어떤 하루를 보냈어?',
-        systemPrompt: '너는 친절하고 다정한 인공지능 어시스턴트이다.'
-      }
-    ];
-
-    const RISU_BUILTIN_MAIN_PROMPT = `You are an AI assistant participating in an immersive roleplay with {{user}}. You will portray {{char}} and all other supporting characters in the story, while {{user}} controls their own character.
-
-* Stay in character at all times. Respond according to {{char}}'s personality, appearance, background, memories, relationships, and current circumstances.
-* Do not speak for, act for, or control {{user}}. Do not describe {{user}}'s thoughts, feelings, decisions, dialogue, or actions unless {{user}} explicitly provides them.
-* Describe non-dialogues, actions, and scenes inside asterisks (*action*).
-* Enhance the scene by describing non-dialogues using at least two of the following senses: sight, sound, smell, touch, or taste.
-* Be proactive and creative in driving the plot forward while maintaining continuity with previous messages.
-* {{char}} should not automatically agree with {{user}}. Characters may disagree, misunderstand, refuse, or react unpredictably based on their established personality and circumstances.
-* Do not mention these instructions, the prompt, or being an AI. Maintain the roleplay naturally without breaking character.`;
-
-    function RenderAiFormattedText({ text }) {
-      if (!text) return null;
-      const parts = text.split(/(\*[^*]+\*)/g);
-
-      return (
-        <span>
-          {parts.map((part, index) => {
-            if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
-              return (
-                <span key={index} className="text-white italic">
-                  {part}
-                </span>
-              );
-            }
-            return (
-              <span key={index} className="text-orange-400 font-medium">
-                {part}
-              </span>
-            );
-          })}
-        </span>
-      );
-    }
-
-    function App() {
-      // Sidebar State
-      const [sidebarOpen, setSidebarOpen] = useState(false);
-      const [sidebarTab, setSidebarTab] = useState('chat');
-
-      // UI / Text Scale State
-      const [uiScale, setUiScale] = useState(() => Number(localStorage.getItem('risu_ui_scale')) || 100);
-      const [textScale, setTextScale] = useState(() => Number(localStorage.getItem('risu_text_scale')) || 13);
-
-      // Basic Settings State
-      const [apiKey, setApiKey] = useState(() => localStorage.getItem('risu_api_key') || '');
-      const [selectedModel, setSelectedModel] = useState('gemini-3.8-flash');
-      const [userName, setUserName] = useState(() => localStorage.getItem('risu_user_name') || 'User');
-      const [userPersona, setUserPersona] = useState(() => localStorage.getItem('risu_user_persona') || '');
-
-      // AI Generation Parameters State
-      const [maxContextSize, setMaxContextSize] = useState(() => Number(localStorage.getItem('risu_max_context')) || 32000);
-      const [maxOutputTokens, setMaxOutputTokens] = useState(() => Number(localStorage.getItem('risu_max_output')) || 1000);
-      const [temperature, setTemperature] = useState(() => Number(localStorage.getItem('risu_temperature')) || 1.54);
-      const [topK, setTopK] = useState(() => Number(localStorage.getItem('risu_top_k')) || 75);
-      const [reasoningEffort, setReasoningEffort] = useState(() => localStorage.getItem('risu_reasoning_effort') || 'low');
-      const [topP, setTopP] = useState(() => Number(localStorage.getItem('risu_top_p')) || 0.94);
-
-      // Characters & Chat Sessions State
-      const [characters, setCharacters] = useState(() => {
-        const saved = localStorage.getItem('risu_characters');
-        return saved ? JSON.parse(saved) : DEFAULT_CHARACTERS;
-      });
-      const [activeCharId, setActiveCharId] = useState(() => characters[0]?.id || '');
-
-      const [chatSessions, setChatSessions] = useState(() => {
-        const saved = localStorage.getItem('risu_chat_sessions');
-        if (saved) return JSON.parse(saved);
-        const initChar = DEFAULT_CHARACTERS[0];
-        return {
-          [initChar.id]: [
-            { id: 'session-1', name: 'Chat 1', messages: [{ id: 'init-msg', role: 'model', content: initChar.firstMessage }] }
-          ]
-        };
-      });
-      const [activeSessionId, setActiveSessionId] = useState('session-1');
-
-      const [input, setInput] = useState('');
-      const [loading, setLoading] = useState(false);
-      const isRequesting = useRef(false);
-      const chatEndRef = useRef(null);
-
-      // Sync LocalStorage
-      useEffect(() => { localStorage.setItem('risu_api_key', apiKey); }, [apiKey]);
-      useEffect(() => { localStorage.setItem('risu_user_name', userName); }, [userName]);
-      useEffect(() => { localStorage.setItem('risu_user_persona', userPersona); }, [userPersona]);
-      useEffect(() => { localStorage.setItem('risu_characters', JSON.stringify(characters)); }, [characters]);
-      useEffect(() => { localStorage.setItem('risu_chat_sessions', JSON.stringify(chatSessions)); }, [chatSessions]);
-      useEffect(() => { localStorage.setItem('risu_ui_scale', uiScale); }, [uiScale]);
-      useEffect(() => { localStorage.setItem('risu_text_scale', textScale); }, [textScale]);
-
-      // Sync Parameters LocalStorage
-      useEffect(() => { localStorage.setItem('risu_max_context', maxContextSize); }, [maxContextSize]);
-      useEffect(() => { localStorage.setItem('risu_max_output', maxOutputTokens); }, [maxOutputTokens]);
-      useEffect(() => { localStorage.setItem('risu_temperature', temperature); }, [temperature]);
-      useEffect(() => { localStorage.setItem('risu_top_k', topK); }, [topK]);
-      useEffect(() => { localStorage.setItem('risu_reasoning_effort', reasoningEffort); }, [reasoningEffort]);
-      useEffect(() => { localStorage.setItem('risu_top_p', topP); }, [topP]);
-
-      const activeChar = characters.find(c => c.id === activeCharId) || characters[0];
-      const activeCharSessions = chatSessions[activeCharId] || [];
-      const currentSession = activeCharSessions.find(s => s.id === activeSessionId) || activeCharSessions[0] || { messages: [] };
-
-      useEffect(() => {
-        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, [currentSession.messages]);
-
-      const handleFirstMessageChange = (newFirstMsg) => {
-        setCharacters(characters.map(c => c.id === activeCharId ? { ...c, firstMessage: newFirstMsg } : c));
-        
-        setChatSessions(prev => {
-          const charSessions = prev[activeCharId] || [];
-          const updatedSessions = charSessions.map(sess => {
-            if (sess.messages && sess.messages.length > 0 && sess.messages[0].id === 'init-msg') {
-              const newMsgs = [...sess.messages];
-              newMsgs[0] = { ...newMsgs[0], content: newFirstMsg };
-              return { ...sess, messages: newMsgs };
-            }
-            return sess;
-          });
-          return { ...prev, [activeCharId]: updatedSessions };
-        });
-      };
-
-      const handleSelectCharacter = (charId) => {
-        setActiveCharId(charId);
-        let sessions = chatSessions[charId];
-        if (!sessions || sessions.length === 0) {
-          const char = characters.find(c => c.id === charId);
-          const newSess = { id: `session-${Date.now()}`, name: 'Chat 1', messages: [{ id: 'init-msg', role: 'model', content: char?.firstMessage || '안녕하세요!' }] };
-          setChatSessions(prev => ({ ...prev, [charId]: [newSess] }));
-          setActiveSessionId(newSess.id);
-        } else {
-          setActiveSessionId(sessions[0].id);
-        }
-      };
-
-      const handleNewSession = () => {
-        const targetSessions = chatSessions[activeCharId] || [];
-        const newSess = {
-          id: `session-${Date.now()}`,
-          name: `Chat ${targetSessions.length + 1}`,
-          messages: [{ id: 'init-msg', role: 'model', content: activeChar.firstMessage }]
-        };
-        setChatSessions(prev => ({ ...prev, [activeCharId]: [...(prev[activeCharId] || []), newSess] }));
-        setActiveSessionId(newSess.id);
-      };
-
-      const handleAddCharacter = () => {
-        const nextColor = COLOR_PALETTE[characters.length % COLOR_PALETTE.length];
-        const newChar = {
-          id: `char-${Date.now()}`,
-          name: 'New Character',
-          avatarColor: nextColor,
-          description: '',
-          firstMessage: '안녕하세요!',
-          systemPrompt: '너는 AI 어시스턴트이다.'
-        };
-        setCharacters(prev => [...prev, newChar]);
-        handleSelectCharacter(newChar.id);
-      };
-
-      const handleDeleteCharacter = () => {
-        if (characters.length <= 1) {
-          alert('최소 하나 이상의 캐릭터는 존재해야 합니다.');
-          return;
-        }
-        if (window.confirm('정말로 이 캐릭터와 대화 기록을 삭제하시겠습니까?')) {
-          const newChars = characters.filter(c => c.id !== activeCharId);
-          setCharacters(newChars);
-          
-          const newSessions = { ...chatSessions };
-          delete newSessions[activeCharId];
-          setChatSessions(newSessions);
-
-          handleSelectCharacter(newChars[0].id);
-        }
-      };
-
-      const handleDeleteMessage = (msgId) => {
-        const updatedMsgs = currentSession.messages.filter(m => m.id !== msgId);
-        setChatSessions(prev => ({
-          ...prev,
-          [activeCharId]: (prev[activeCharId] || []).map(s => s.id === activeSessionId ? { ...s, messages: updatedMsgs } : s)
-        }));
-      };
-
-      // API Request Helper (1, 2번 적용: 첫 메시지 프롬프트 합성 + 검열 해제 + 3.8~3.5 Flash 1.5초 폴백)
-      const fetchAIResponse = async (msgsToSend) => {
-        let processedMainPrompt = RISU_BUILTIN_MAIN_PROMPT
-          .replaceAll('{{char}}', activeChar?.name || 'Character')
-          .replaceAll('{{user}}', userName || 'User');
-
-        const charPrompt = (activeChar?.systemPrompt || '')
-          .replaceAll('{{char}}', activeChar?.name || 'Character')
-          .replaceAll('{{user}}', userName || 'User');
-
-        const systemText = `${processedMainPrompt}\n\n[Character Setting: ${activeChar?.name}]\nDescription: ${activeChar?.description || ''}\nPersonality & Rules: ${charPrompt}\n\n[User Info]\nName: ${userName}\nPersona: ${userPersona}`;
-
-        // RisuAI 방식: 시스템 프롬프트를 첫 메시지에 내장시켜 거절 확률 최소화
-        const formattedContents = msgsToSend.map((m, idx) => {
-          let textContent = m.content;
-          if (idx === 0) {
-            textContent = `[System Prompt]\n${systemText}\n\n[Chat Start]\n${m.content}`;
-          }
-          return {
-            role: m.role === 'user' ? 'user' : 'model',
-            parts: [{ text: textContent }]
-          };
-        });
-
-        const generationConfig = {
-          temperature: parseFloat(temperature),
-          topP: parseFloat(topP),
-          topK: parseInt(topK, 10),
-          maxOutputTokens: parseInt(maxOutputTokens, 10)
-        };
-
-        // RisuAI 검열 해제 필터
-        const safetySettings = [
-          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
-        ];
-
-        // Flash 계열 4개 모델 순회
-        const allModels = [
-          'gemini-3.8-flash',
-          'gemini-3.7-flash',
-          'gemini-3.6-flash',
-          'gemini-3.5-flash'
-        ];
-
-        const fallbackModels = [selectedModel, ...allModels.filter(m => m !== selectedModel)];
-        let lastErrorMessage = '';
-
-        for (let i = 0; i < fallbackModels.length; i++) {
-          const targetModel = fallbackModels[i];
-          try {
-            console.log(`[시도 ${i + 1}/${fallbackModels.length}] ${targetModel} 모델에 요청 중...`);
-
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: formattedContents,
-                generationConfig: generationConfig,
-                safetySettings: safetySettings
-              })
-            });
-
-            const data = await response.json();
-
-            if (data.error) {
-              lastErrorMessage = data.error.message || '';
-              console.warn(`[거절됨] ${targetModel}: ${lastErrorMessage}. 1.5초 대기 후 다음 모델 시도...`);
-              await new Promise(resolve => setTimeout(resolve, 1500));
-              continue;
-            }
-
-            const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!reply) {
-              lastErrorMessage = '답변 텍스트가 비어있거나 차단되었습니다.';
-              await new Promise(resolve => setTimeout(resolve, 1500));
-              continue;
-            }
-
-            return reply;
-
-          } catch (err) {
-            lastErrorMessage = err.message;
-            console.warn(`[오류] ${targetModel}: ${err.message}`);
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            continue;
-          }
-        }
-
-        throw new Error(`Flash 4개 모델(3.8~3.5)이 모두 거절되었습니다. (${lastErrorMessage || '잠시 후 다시 시도해주세요.'})`);
-      };
-
-      const handleSend = async () => {
-        if (!input.trim()) return;
-        if (loading || isRequesting.current) return;
-
-        if (!apiKey) {
-          alert('사이드바 메뉴 > 설정에서 Gemini API Key를 입력하세요.');
-          setSidebarOpen(true);
-          setSidebarTab('settings');
-          return;
-        }
-
-        isRequesting.current = true;
-        setLoading(true);
-
-        const userMsg = input.trim();
-        setInput('');
-
-        const currentMsgs = currentSession.messages || [];
-        const updatedMsgs = [...currentMsgs, { id: Date.now(), role: 'user', content: userMsg }];
-
-        setChatSessions(prev => ({
-          ...prev,
-          [activeCharId]: (prev[activeCharId] || []).map(s => s.id === activeSessionId ? { ...s, messages: updatedMsgs } : s)
-        }));
-
-        try {
-          const replyText = await fetchAIResponse(updatedMsgs);
-          setChatSessions(prev => ({
-            ...prev,
-            [activeCharId]: (prev[activeCharId] || []).map(s => s.id === activeSessionId ? { ...s, messages: [...updatedMsgs, { id: Date.now() + 1, role: 'model', content: replyText }] } : s)
-          }));
-        } catch (err) {
-          alert('오류: ' + err.message);
-        } finally {
-          isRequesting.current = false;
-          setLoading(false);
-        }
-      };
-
-      const handleRetry = async (msgIndex) => {
-        if (loading || isRequesting.current) return;
-        if (!apiKey) {
-          alert('설정에서 API Key를 확인하세요.');
-          return;
-        }
-
-        isRequesting.current = true;
-        setLoading(true);
-
-        const currentMsgs = currentSession.messages || [];
-        const targetMsgs = currentMsgs.slice(0, currentMsgs[msgIndex].role === 'model' ? msgIndex : msgIndex + 1);
-
-        try {
-          const replyText = await fetchAIResponse(targetMsgs);
-          setChatSessions(prev => ({
-            ...prev,
-            [activeCharId]: (prev[activeCharId] || []).map(s => s.id === activeSessionId ? { ...s, messages: [...targetMsgs, { id: Date.now(), role: 'model', content: replyText }] } : s)
-          }));
-        } catch (err) {
-          alert('오류: ' + err.message);
-        } finally {
-          isRequesting.current = false;
-          setLoading(false);
-        }
-      };
-
-      return (
-        <div style={{ zoom: `${uiScale}%` }} className="flex h-full w-full bg-[#1e1e1a] text-[#d4d4d0] relative overflow-hidden">
-          
-          {/* LEFT SLIDING SIDEBAR */}
-          <div className={`fixed inset-y-0 left-0 z-50 flex w-[280px] sm:w-[320px] bg-[#181816] transition-transform duration-200 ease-in-out border-r border-[#2d2d28] ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-            
-            {/* Leftmost Vertical Icon Bar */}
-            <div className="w-[48px] bg-[#141412] flex flex-col items-center py-2 space-y-2 border-r border-[#262622] shrink-0">
-              <button onClick={() => setSidebarOpen(false)} className="w-8 h-8 flex items-center justify-center bg-[#282824] hover:bg-[#33332d] rounded-lg text-zinc-300">
-                &larr;
-              </button>
-              
-              <div className="w-full border-t border-[#262622] my-0.5"></div>
-
-              {/* Character Solid Color Avatars List */}
-              <div className="flex-1 overflow-y-auto space-y-2 w-full flex flex-col items-center">
-                {characters.map(c => (
-                  <button 
-                    key={c.id} 
-                    onClick={() => handleSelectCharacter(c.id)} 
-                    style={{ backgroundColor: c.avatarColor || '#EF4444' }} 
-                    className={`w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-xs shadow-inner border ${activeCharId === c.id ? 'border-amber-400 ring-2 ring-amber-400/50 scale-105' : 'border-black/20'}`}
-                  >
-                    {c.name ? c.name[0].toUpperCase() : 'C'}
-                  </button>
-                ))}
-                <button onClick={handleAddCharacter} className="w-8 h-8 bg-[#242420] hover:bg-[#33332d] rounded-lg border border-[#33332d] flex items-center justify-center text-zinc-400 font-bold">+</button>
-              </div>
-
-              {/* Bottom Settings Icon */}
-              <button onClick={() => setSidebarTab('settings')} className="w-8 h-8 bg-[#242420] hover:bg-[#33332d] rounded-lg border border-[#33332d] flex items-center justify-center text-zinc-400">
-                ⚙️
-              </button>
-            </div>
-
-            {/* Sidebar Content Area */}
-            <div className="flex-1 flex flex-col h-full bg-[#181816] overflow-hidden">
-              {/* Top Sub Tabs */}
-              <div className="flex border-b border-[#2a2a24] p-1.5 gap-1 bg-[#161614]">
-                <button onClick={() => setSidebarTab('chat')} className={`flex-1 py-1 rounded text-xs font-semibold ${sidebarTab === 'chat' ? 'bg-[#2b2b25] text-amber-200/90' : 'text-zinc-500'}`}>챗</button>
-                <button onClick={() => setSidebarTab('character')} className={`flex-1 py-1 rounded text-xs font-semibold ${sidebarTab === 'character' ? 'bg-[#2b2b25] text-amber-200/90' : 'text-zinc-500'}`}>캐릭터</button>
-                <button onClick={() => setSidebarTab('settings')} className={`flex-1 py-1 rounded text-xs font-semibold ${sidebarTab === 'settings' ? 'bg-[#2b2b25] text-amber-200/90' : 'text-zinc-500'}`}>설정</button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-2.5 space-y-3">
-                {/* CHAT TAB */}
-                {sidebarTab === 'chat' && (
-                  <div className="space-y-2">
-                    <button onClick={handleNewSession} className="w-full py-1.5 bg-[#2a2a24] hover:bg-[#33332c] text-amber-100/90 rounded-md font-medium text-xs border border-[#383830]">
-                      새 채팅
-                    </button>
-
-                    <div className="space-y-1">
-                      {activeCharSessions.map(s => (
-                        <div key={s.id} onClick={() => { setActiveSessionId(s.id); setSidebarOpen(false); }} className={`flex items-center justify-between p-2 rounded-md cursor-pointer border ${activeSessionId === s.id ? 'bg-[#282822] border-amber-500/40 text-amber-200/90' : 'bg-[#1e1e1a] border-[#2a2a24] text-zinc-400'}`}>
-                          <span className="text-xs truncate font-medium">{s.name}</span>
-                          <span className="text-[10px] text-zinc-600">⋮</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* CHARACTER TAB */}
-                {sidebarTab === 'character' && (
-                  <div className="space-y-2.5 text-xs">
-                    <div>
-                      <label className="text-zinc-500 block mb-0.5">Character Name</label>
-                      <input type="text" value={activeChar?.name} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, name: e.target.value } : c))} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200" />
-                    </div>
-                    <div>
-                      <label className="text-zinc-500 block mb-0.5">설명 ⑨</label>
-                      <textarea value={activeChar?.description} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, description: e.target.value } : c))} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200 h-16" />
-                    </div>
-                    <div>
-                      <label className="text-zinc-500 block mb-0.5">첫 메시지 ⑨</label>
-                      <textarea value={activeChar?.firstMessage} onChange={(e) => handleFirstMessageChange(e.target.value)} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200 h-16" />
-                    </div>
-                    <div>
-                      <label className="text-zinc-500 block mb-0.5">시스템 프롬프트</label>
-                      <textarea value={activeChar?.systemPrompt} onChange={(e) => setCharacters(characters.map(c => c.id === activeCharId ? { ...c, systemPrompt: e.target.value } : c))} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200 h-20" />
-                    </div>
-
-                    <div className="pt-6 pb-2">
-                      <button onClick={handleDeleteCharacter} className="w-full py-2 bg-red-950/40 hover:bg-red-900/60 text-red-300 rounded border border-red-800/50 transition">
-                        🗑️ 캐릭터 삭제
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* SETTINGS TAB WITH PARAMETERS */}
-                {sidebarTab === 'settings' && (
-                  <div className="space-y-3 text-xs">
-                    <div>
-                      <label className="text-zinc-400 block mb-0.5">UI 스케일 ({uiScale}%)</label>
-                      <input type="range" min="70" max="130" value={uiScale} onChange={(e) => setUiScale(Number(e.target.value))} className="w-full accent-amber-500" />
-                    </div>
-                    <div>
-                      <label className="text-zinc-400 block mb-0.5">텍스트 크기 ({textScale}px)</label>
-                      <input type="range" min="10" max="20" value={textScale} onChange={(e) => setTextScale(Number(e.target.value))} className="w-full accent-amber-500" />
-                    </div>
-
-                    <hr className="border-[#2a2a24]" />
-
-                    <div>
-                      <label className="text-zinc-400 block mb-0.5">Gemini API Key</label>
-                      <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200" />
-                    </div>
-                    <div>
-                      <label className="text-zinc-400 block mb-0.5">AI 모델 (1순위)</label>
-                      <select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200">
-                        {FLASH_MODELS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                      </select>
-                    </div>
-
-                    <hr className="border-[#2a2a24]" />
-
-                    {/* AI Parameters Section */}
-                    <div>
-                      <label className="text-zinc-400 block mb-0.5">최대 컨텍스트 크기</label>
-                      <input type="number" value={maxContextSize} onChange={(e) => setMaxContextSize(Number(e.target.value))} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200" />
-                    </div>
-
-                    <div>
-                      <label className="text-zinc-400 block mb-0.5">최대 응답 크기</label>
-                      <input type="number" value={maxOutputTokens} onChange={(e) => setMaxOutputTokens(Number(e.target.value))} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200" />
-                    </div>
-
-                    <div>
-                      <div className="flex justify-between items-center mb-0.5">
-                        <label className="text-zinc-400">온도 (Temperature)</label>
-                        <span className="text-amber-400 font-mono text-[11px]">{temperature}</span>
-                      </div>
-                      <input type="range" min="0" max="2" step="0.01" value={temperature} onChange={(e) => setTemperature(Number(e.target.value))} className="w-full accent-amber-500" />
-                    </div>
-
-                    <div>
-                      <div className="flex justify-between items-center mb-0.5">
-                        <label className="text-zinc-400">Top K</label>
-                        <span className="text-amber-400 font-mono text-[11px]">{topK}</span>
-                      </div>
-                      <input type="range" min="1" max="100" step="1" value={topK} onChange={(e) => setTopK(Number(e.target.value))} className="w-full accent-amber-500" />
-                    </div>
-
-                    <div>
-                      <label className="text-zinc-400 block mb-1">Reasoning Effort</label>
-                      <div className="grid grid-cols-4 gap-1 bg-[#141412] p-1 rounded-md border border-[#2a2a24]">
-                        {['minimal', 'low', 'medium', 'high'].map((effort) => (
-                          <button
-                            key={effort}
-                            onClick={() => setReasoningEffort(effort)}
-                            className={`py-1 rounded text-[11px] capitalize font-medium transition ${reasoningEffort === effort ? 'bg-[#2d2d26] text-amber-300 border border-amber-500/40' : 'text-zinc-500 hover:text-zinc-300'}`}
-                          >
-                            {effort}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="flex justify-between items-center mb-0.5">
-                        <label className="text-zinc-400">Top P</label>
-                        <span className="text-amber-400 font-mono text-[11px]">{topP}</span>
-                      </div>
-                      <input type="range" min="0" max="1" step="0.01" value={topP} onChange={(e) => setTopP(Number(e.target.value))} className="w-full accent-amber-500" />
-                    </div>
-
-                    <hr className="border-[#2a2a24]" />
-
-                    <div>
-                      <label className="text-zinc-400 block mb-0.5">유저 이름 (User Name)</label>
-                      <input type="text" value={userName} onChange={(e) => setUserName(e.target.value)} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200" />
-                    </div>
-                    <div>
-                      <label className="text-zinc-400 block mb-0.5">유저 페르소나 (User Persona)</label>
-                      <textarea value={userPersona} onChange={(e) => setUserPersona(e.target.value)} className="w-full bg-[#1e1e1a] border border-[#2d2d27] rounded p-1.5 text-zinc-200 h-20" />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* MAIN CHAT AREA */}
-          <div className="flex-1 flex flex-col h-full relative overflow-hidden">
-            
-            {/* Top Navigation Button */}
-            <div className="p-2 flex items-center shrink-0">
-              <button onClick={() => setSidebarOpen(true)} className="p-1.5 bg-[#252520] hover:bg-[#30302a] border border-[#33332c] rounded-md text-zinc-300 flex items-center justify-center">
-                &rarr;
-              </button>
-            </div>
-
-            {/* Chat Body */}
-            <div className="flex-1 overflow-y-auto px-3 py-1 space-y-3" style={{ fontSize: `${textScale}px` }}>
-              {currentSession.messages?.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-center text-zinc-500 space-y-1">
-                  <p className="text-xs">콘텐츠는 AI로 생성되며 부정확하거나 편향된 정보가 포함될 수 있습니다.</p>
-                  <p className="text-xs">무언가 입력하여 채팅을 시작하세요.</p>
-                </div>
-              ) : (
-                currentSession.messages?.map((m, idx) => {
-                  const isFirstMsg = idx === 0 && m.id === 'init-msg';
-                  const isModel = m.role === 'model';
-
-                  return (
-                    <div key={m.id} className={`flex flex-col ${isModel ? 'items-start' : 'items-end'}`}>
-                      <div className={`max-w-[88%] p-2.5 rounded-lg leading-relaxed relative group whitespace-pre-wrap ${isModel ? 'bg-[#181816] border border-[#282824]' : 'bg-[#2b2a22] text-amber-100 border border-[#38372d]'}`}>
-                        
-                        {isModel ? (
-                          <RenderAiFormattedText text={m.content} />
-                        ) : (
-                          m.content
-                        )}
-                        
-                        {/* Control Buttons */}
-                        <div className="flex items-center space-x-2 justify-end mt-1.5 pt-1 border-t border-zinc-700/30 text-[10px] text-zinc-500">
-                          <button onClick={() => handleRetry(idx)} className="hover:text-amber-300 transition">🔄 다시시도</button>
-                          {!isFirstMsg && (
-                            <button onClick={() => handleDeleteMessage(m.id)} className="hover:text-red-400 transition">🗑️ 삭제</button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-              {loading && <div className="text-xs text-zinc-500">답변 작성 중...</div>}
-              <div ref={chatEndRef} />
-            </div>
-
-            {/* Bottom Input Area */}
-            <div className="p-2.5 bg-[#181816] border-t border-[#262622] shrink-0">
-              <div className="relative flex items-center bg-[#1e1e1a] border border-[#2e2e28] rounded-md p-1.5">
-                <input 
-                  type="text" 
-                  value={input} 
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                  placeholder="무언가 입력하여 채팅을 시작하세요." 
-                  className="w-full bg-transparent text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none pr-28"
-                  style={{ fontSize: `${textScale}px` }}
-                />
-                
-                <div className="absolute right-1 flex items-center space-x-1 text-zinc-400">
-                  <button 
-                    onClick={handleSend} 
-                    disabled={loading || !input.trim()} 
-                    className="px-3 py-1.5 bg-amber-600/80 hover:bg-amber-500 text-white rounded font-bold text-xs transition disabled:opacity-30 disabled:hover:bg-amber-600/80"
-                  >
-                    전송 ➔
-                  </button>
-                  <button onClick={() => setSidebarOpen(true)} className="p-1.5 hover:text-zinc-200 text-base">
-                    ≡
-                  </button>
-                </div>
-              </div>
-              <p className="text-[9px] text-center text-zinc-600 mt-1">콘텐츠는 AI로 생성되며 부정확하거나 편향된 정보가 포함될 수 있습니다.</p>
-            </div>
-
-          </div>
-
-        </div>
-      );
-    }
-
-    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
-  </script>
-</body>
-</html>
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>RisuLite</title>
+<style>
+:root{--bg:#282a39;--bg2:#22232e;--bg3:#383b52;--tx:#e6e8f2;--mut:#9aa0b8;--ac:#6c8cff;--bd:#42465f;--fs:15px;--bgimg:none}
+[data-th=light]{--bg:#f4f5fa;--bg2:#fff;--bg3:#e8eaf3;--tx:#1d2030;--mut:#666d88;--bd:#d3d7e6}
+[data-th=black]{--bg:#000;--bg2:#0d0d12;--bg3:#1a1a22;--bd:#2a2a35}
+*{box-sizing:border-box}html,body{height:100%;margin:0}body{background:var(--bg);color:var(--tx);font:var(--fs)/1.5 system-ui,"Pretendard",sans-serif}
+#app{display:flex;height:100%;padding-top:env(safe-area-inset-top)}
+aside{width:270px;background:var(--bg2);border-right:1px solid var(--bd);display:flex;flex-direction:column;flex-shrink:0}
+aside .top{padding:12px;display:flex;gap:8px;align-items:center;font-weight:700}aside .top span{flex:1;color:var(--ac);font-size:18px}
+.list{flex:1;overflow:auto;padding:6px}.ci{display:flex;gap:10px;align-items:center;padding:8px;border-radius:8px;cursor:pointer}
+.ci:hover,.ci.on{background:var(--bg3)}.ci b{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.av{width:38px;height:38px;border-radius:50%;background:var(--bg3) center/cover;flex-shrink:0;display:grid;place-items:center;font-weight:700;color:var(--ac)}
+main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
+header{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--bg2);border-bottom:1px solid var(--bd)}header .nm{flex:1;font-weight:700;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+button,select,input,textarea{font:inherit;color:var(--tx)}
+button{background:var(--bg3);border:1px solid var(--bd);border-radius:8px;padding:6px 10px;cursor:pointer}button:hover{border-color:var(--ac)}
+button.pri{background:var(--ac);border-color:var(--ac);color:#fff}button.dng{color:#ff6b6b}
+input,select,textarea{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:7px 9px;width:100%}textarea{resize:vertical}
+#msgs{flex:1;overflow:auto;padding:14px;background:linear-gradient(#0000,#0000),var(--bgimg) center/cover fixed}
+.m{display:flex;gap:10px;margin:0 auto 14px;max-width:860px}.m .b{background:var(--bg2);border:1px solid var(--bd);border-radius:12px;padding:8px 12px;flex:1;min-width:0;word-break:break-word}
+.m.u .b{background:color-mix(in srgb,var(--ac) 22%,var(--bg2))}.m .n{font-weight:700;font-size:.85em;color:var(--mut)}.m .t{margin-top:2px}
+.m code,.m pre{background:var(--bg);border-radius:6px;padding:1px 5px}.m pre{padding:8px;overflow:auto}
+.acts{display:flex;gap:4px;margin-top:4px;opacity:.75}.acts button{padding:1px 7px;font-size:.8em}
+.inp{display:flex;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:var(--bg2);border-top:1px solid var(--bd)}.inp textarea{resize:none;max-height:160px}
+.pg{padding:16px;overflow:auto;flex:1}.pg>div{max-width:760px;margin:0 auto}label{display:block;margin:10px 0 3px;color:var(--mut);font-size:.85em}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.row>*{flex:1}.row>button{flex:0 0 auto}
+.card{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:10px;margin:8px 0}
+#modal{position:fixed;inset:0;background:#0009;display:none;align-items:center;justify-content:center;z-index:20;padding:12px}
+#modal.on{display:flex}.box{background:var(--bg2);border:1px solid var(--bd);border-radius:14px;width:min(720px,100%);max-height:92vh;display:flex;flex-direction:column}
+.box .bd{overflow:auto;padding:12px 16px 16px}.tabs{display:flex;gap:4px;overflow:auto;padding:8px;border-bottom:1px solid var(--bd)}.tabs button.on{background:var(--ac);color:#fff}
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:8px 14px;border-radius:8px;z-index:30;max-width:90%}
+.empty{margin:auto;color:var(--mut);text-align:center;padding:20px}.mbtn{display:none}.note{color:var(--mut);font-size:.85em}
+@media(max-width:760px){aside{position:fixed;z-index:10;inset:0 auto 0 0;transform:translateX(-100%);transition:.2s;height:100%}aside.open{transform:none}.mbtn{display:inline-block}}
+.set{display:flex;height:88vh}.nav{width:230px;flex-shrink:0;overflow:auto;padding:10px;border-right:1px solid var(--bd)}.nav .nb{display:block;width:100%;text-align:left;border:0;background:none;margin:2px 0}.nav .nb.on{background:var(--bg3);color:var(--ac)}.nav .nh{font-weight:700;margin:12px 4px 4px}
+.pane{flex:1;overflow:auto;padding:14px 18px;min-width:0}.box.wide{width:min(1180px,100%)}.sg{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px}.mc{display:flex;justify-content:space-between;gap:6px;padding:9px 11px;border:1px solid var(--bd);border-radius:8px;cursor:pointer;background:var(--bg)}.mc.on{border-color:var(--ac);background:var(--bg3)}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start}.badge{font-size:.7em;background:var(--bg3);border:1px solid var(--bd);border-radius:4px;padding:0 6px;flex:0 0 auto}summary{cursor:pointer;margin-top:10px}
+@media(max-width:760px){.set{flex-direction:column}.nav{width:auto;border-right:0;border-bottom:1px solid var(--bd);display:flex;gap:4px;flex-wrap:wrap;max-height:30vh}.nav .nb{width:auto}.nav input,.nav .nh{width:100%}.cols{grid-template-columns:1fr}}
+input,select,textarea{background:var(--bg2)}
+#rail{width:64px;background:var(--bg);display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px 0;flex-shrink:0;overflow:auto}
+.rb{width:48px;height:36px;display:grid;place-items:center;border-radius:8px;border:0;background:var(--bg3);padding:0;color:var(--tx)}.rb.blue{background:#2979ff;color:#fff}.rb.round{width:48px;height:48px;min-height:48px;border-radius:50%;background:none;border:1px solid var(--tx);font-size:22px}
+.rc{width:52px;height:52px;border-radius:8px;background:#6d6f78 center/cover;display:grid;place-items:center;font-weight:700;font-size:22px;color:#fff;cursor:pointer;border:2px solid transparent;flex-shrink:0}.rc.on{border-color:var(--ac)}
+aside{width:340px;border-right:0}.seg2{display:flex;border:1px solid var(--bd);border-radius:6px;overflow:hidden;margin:2px 8px 0}.seg2 button{flex:1;border:0;border-radius:0;background:none;padding:9px}.seg2 button.on{background:var(--bg3)}
+.wbtn{width:100%;padding:12px;background:var(--bg3)}.ci{justify-content:space-between}.cn{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.ca{display:flex;gap:2px}.ca button,.sbt button,.icons button{border:0;background:none;padding:3px;color:var(--mut)}
+.sbt{display:flex;gap:10px;padding:10px 12px;border-top:1px solid var(--bd)}.icons{display:flex;gap:12px;padding:12px}.icons button.on{color:var(--tx)}
+.sp{padding:0 12px 12px;overflow:auto;flex:1;display:flex;flex-direction:column}textarea.tall{flex:1;min-height:280px}
+.tabbar{display:flex;align-items:flex-end;gap:8px;padding:8px 8px 0;border-bottom:1px solid var(--bd);min-height:44px;background:var(--bg)}.bk{border:0;background:var(--bg2);align-self:center;padding:8px 10px;border-radius:8px;margin-bottom:6px}
+.tab{background:var(--bg3);border-radius:8px 8px 0 0;padding:3px 12px;line-height:1.25;display:flex;flex-direction:column;max-width:240px;overflow:hidden}.tab b{font-size:.8em;white-space:nowrap}.tab small{font-size:.7em;color:var(--mut)}.pl{margin-left:auto;border:0;background:none;font-size:20px;align-self:center}
+#msgs{display:flex;flex-direction:column}#msgs>.m{width:100%;max-width:860px}.hint{margin-top:auto;text-align:center;color:var(--mut);font-style:italic;font-size:.9em;padding-bottom:10px}.hint p{margin:14px 0}
+.inp{align-items:flex-end;border-top:0;background:var(--bg)}.inp textarea{flex:1}.ib{border:0;background:none;padding:8px 4px;color:var(--tx)}.mlist{display:flex;flex-direction:column;gap:6px}
+@media(min-width:761px){aside.col{display:none}}
+@media(max-width:760px){#rail{width:56px}.rb,.rc{width:44px}.rc{height:44px}aside{position:fixed;left:56px;top:0;bottom:0;width:min(340px,calc(100% - 56px));transform:translateX(-130%);z-index:10;border-right:1px solid var(--bd)}aside.open{transform:none}}
+.rb2{width:48px;height:52px;display:grid;place-items:center;border-radius:8px;border:0;background:#6d6f78;color:#fff;padding:0}
+.pb{display:flex;align-items:center;border:1px solid var(--bd);border-radius:16px;overflow:hidden;background:var(--bg2);height:32px}.pc{display:grid;place-items:center;width:40px;height:100%;margin:0;border-right:1px solid var(--bd)}.pc input{width:auto}
+.pv{position:relative;flex:1;height:100%}.pv:before{content:'';position:absolute;inset:0 auto 0 0;width:var(--f);background:#3a4660}.pv span{position:absolute;left:14px;top:4px}.pv input{position:absolute;inset:0;width:100%;height:100%;opacity:0;margin:0;cursor:pointer}.pn{border:0;border-radius:0;background:none;height:100%}
+</style></head><body><div id="app"><nav id="rail"></nav><aside id="side"></aside><main id="main"></main></div><div id="modal"></div><input type="file" id="fi" hidden>
+<script>
+const T={
+new_char:['새 캐릭터','New character'],import:['가져오기','Import'],settings:['설정','Settings'],welcome:['캐릭터를 만들거나 카드(JSON/PNG)를 가져오세요.','Create a character or import a card (JSON/PNG).'],
+history:['대화 기록','History'],newchat:['새 채팅','New chat'],edit:['편집','Edit'],export:['내보내기','Export'],del:['삭제','Delete'],back:['돌아가기','Back'],
+send:['전송','Send'],stop:['중지','Stop'],ph:['메시지 입력…','Type a message…'],regen:['재생성','Regen'],copy:['복사','Copy'],save:['저장','Save'],cancel:['닫기','Close'],
+general:['일반','General'],persona:['페르소나','Persona'],model:['모델/API','Model/API'],safety:['Gemini Safety','Gemini Safety'],prompt:['프롬프트','Prompt'],world:['월드 인포','World Info'],data:['데이터','Data'],
+lang:['언어','Language'],theme:['테마','Theme'],accent:['강조색','Accent color'],font:['글자 크기','Font size'],bg:['채팅 배경','Chat background'],bgurl:['이미지 URL','Image URL'],upload:['업로드','Upload'],clear:['제거','Clear'],
+apikey:['Gemini API 키','Gemini API key'],remember:['이 기기에 키 저장(해제 시 탭 종료 때 삭제)','Remember key on this device (otherwise cleared when tab closes)'],mdl:['모델','Model'],custom:['직접 입력','Custom'],fetchm:['모델 목록 불러오기','Fetch model list'],
+temp:['Temperature','Temperature'],topp:['Top P','Top P'],maxtok:['최대 출력 토큰','Max output tokens'],ctx:['컨텍스트 메시지 수','Context messages'],stream:['스트리밍','Streaming'],
+sfon:['Gemini Safety 활성화 (ON: 아래 수준 적용 / OFF: 조절 가능한 필터 모두 BLOCK_NONE)','Gemini Safety enabled (ON: use levels below / OFF: all adjustable filters BLOCK_NONE)'],
+sfnote:['이 설정은 API 요청의 safetySettings로 그대로 전송됩니다. Google이 항상 적용하는 조절 불가능한 보호 기능(예: 아동 안전)은 어떤 설정으로도 해제되지 않으며 우회하지 않습니다.','These are sent as safetySettings in each API request. Google’s non-adjustable protections (e.g. child safety) always apply and are not bypassed.'],
+HARM_CATEGORY_HARASSMENT:['괴롭힘','Harassment'],HARM_CATEGORY_HATE_SPEECH:['증오심 표현','Hate speech'],HARM_CATEGORY_SEXUALLY_EXPLICIT:['성적으로 노골적인 콘텐츠','Sexually explicit'],HARM_CATEGORY_DANGEROUS_CONTENT:['위험한 콘텐츠','Dangerous content'],HARM_CATEGORY_CIVIC_INTEGRITY:['시민 참여 무결성','Civic integrity'],
+BLOCK_NONE:['차단 안 함 (BLOCK_NONE)','Off (BLOCK_NONE)'],BLOCK_ONLY_HIGH:['높음만 차단','Block high only'],BLOCK_MEDIUM_AND_ABOVE:['중간 이상 차단','Block medium+'],BLOCK_LOW_AND_ABOVE:['낮음 이상 차단','Block low+'],
+mainp:['메인 프롬프트(시스템)','Main (system) prompt'],postp:['사후 프롬프트(항상 마지막에 추가)','Post-history prompt (appended last)'],macros:['매크로: {{char}} {{user}}','Macros: {{char}} {{user}}'],
+name:['이름','Name'],desc:['설명','Description'],pers:['성격','Personality'],scen:['시나리오','Scenario'],first:['첫 메시지','First message'],ex:['대화 예시','Example dialogue'],sysp:['캐릭터 시스템 프롬프트','Character system prompt'],avatar:['아바타','Avatar'],
+lore:['로어북','Lorebook'],addlore:['항목 추가','Add entry'],keys:['키워드(쉼표 구분)','Keys (comma separated)'],content:['내용','Content'],always:['항상 활성','Always on'],enabled:['사용','Enabled'],
+addp:['페르소나 추가','Add persona'],sel:['사용 중','Active'],expall:['전체 백업 내보내기','Export full backup'],impall:['백업 가져오기','Import backup'],reset:['모든 데이터 초기화','Reset all data'],delkey:['저장된 API 키 삭제','Delete stored API key'],
+nokey:['설정에서 Gemini API 키를 입력하세요.','Enter your Gemini API key in Settings.'],blocked:['안전 필터에 의해 차단됨: ','Blocked by safety filter: '],ok:['완료','Done'],confirm:['정말 진행할까요?','Are you sure?'],
+pngx:['PNG 내보내기는 미구현 (JSON만 지원)','PNG export not implemented (JSON only)'],badf:['지원하지 않는 파일','Unsupported file'],edmsg:['메시지 수정','Edit message'],rename:['이름 변경','Rename'],found:['개 모델','models']};
+Object.assign(T,{stinfo:['영구 저장소 보호','Persistent storage'],search:['검색','Search'],home:['홈','Home'],temp:['온도','Temperature'],pctx:['최대 컨텍스트 크기 (토큰)','Max context size (tokens)'],presp:['최대 응답 크기','Max response size'],thinkm:['사고 모드','Thinking mode'],thinkt:['사고 토큰','Thinking tokens'],thinknote:['사고 모드는 Gemini(thinkingBudget)와 Claude(Budget)에만 적용됩니다. Adaptive는 모델 기본값을 사용합니다. 체크 해제한 항목은 요청에 포함되지 않습니다.','Thinking applies to Gemini (thinkingBudget) and Claude (Budget) only. Adaptive uses the model default. Unchecked items are not sent.'],tab_chat:['챗','Chat'],tab_char:['캐릭터','Character'],d_desc:['설명','Description'],d_first:['첫 메시지','First message'],d_note:['작가의 노트','Author’s note'],tok:['토큰','tokens'],delchar:['캐릭터 삭제','Delete character'],aiwarn:['콘텐츠는 AI로 생성되며 부정확하거나 편향된 정보가 포함될 수 있습니다.','Content is AI-generated and may be inaccurate or biased.'],starthint:['무언가 입력하여 채팅을 시작하세요.','Type something to start chatting.'],t_memory:['장기 기억','Long-term memory'],model:['메인 모델','Main model'],api:['API 및 프로바이더','API & Providers'],params:['파라미터','Parameters'],display:['소리 및 디스플레이','Display'],chatbot:['채팅 봇','Chatbot'],sset:['검색 설정','Search settings'],msearch:['모델 검색 (이름, ID, 프로바이더)','Search models (name, ID, provider)'],
+ all:['전체','All'],favs:['즐겨찾기','Favorites'],recent:['최근 사용','Recent'],provider:['제공자','Provider'],preset:['프리셋 불러오기','Load preset'],tokens:['대략적 토큰','approx. tokens'],note:['작가의 노트 (이 채팅)','Author’s note (this chat)'],
+ t_plain:['순수 프롬프트','Plain prompt'],t_description:['캐릭터 설명','Character description'],t_persona:['페르소나 프롬프트','Persona prompt'],t_lorebook:['로어북','Lorebook'],t_authornote:['작가의 노트','Author’s note'],t_chat:['챗','Chat'],t_postEverything:['최종 삽입 프롬프트','Post-everything prompt'],
+ HARM_CATEGORY_JAILBREAK:['탈옥 감지','Jailbreak detection'],BLOCK_NONE:['끄기 (OFF)','Off (BLOCK_NONE)'],OMIT:['전송 안 함 (API 기본값)','Don’t send (API default)'],
+ nomem:['장기 기억은 채팅 헤더의 🧠에서 직접 입력합니다 (자동 요약은 미구현)','Memory is entered manually via 🧠 in the chat header (auto-summary not implemented)'],remember:['키를 이 기기에 저장 (해제 시 탭을 닫으면 삭제)','Keep keys on this device (otherwise cleared when tab closes)']});
+const t=k=>(T[k]||[k,k])[S.lang=='ko'?0:1];
+const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])),uid=()=>Math.random().toString(36).slice(2,10);
+const CATS=['HARM_CATEGORY_HARASSMENT','HARM_CATEGORY_HATE_SPEECH','HARM_CATEGORY_SEXUALLY_EXPLICIT','HARM_CATEGORY_DANGEROUS_CONTENT','HARM_CATEGORY_CIVIC_INTEGRITY','HARM_CATEGORY_JAILBREAK'],LV=['BLOCK_NONE','BLOCK_ONLY_HIGH','BLOCK_MEDIUM_AND_ABOVE','BLOCK_LOW_AND_ABOVE','OMIT'];
+const DEFSAFE=Object.fromEntries(CATS.map(c=>[c,/CIVIC|JAILBREAK/.test(c)?'OMIT':'BLOCK_MEDIUM_AND_ABOVE']));
+const PROV=[{id:'google',n:'Google AI Studio'},{id:'openai',n:'OpenAI',u:'https://api.openai.com/v1/chat/completions'},{id:'anthropic',n:'Anthropic Claude'},{id:'openrouter',n:'OpenRouter',u:'https://openrouter.ai/api/v1/chat/completions'},{id:'mistral',n:'MistralAI',u:'https://api.mistral.ai/v1/chat/completions'},{id:'custom',n:'Custom API (OpenAI-compatible)'}];
+const MODELS=[['google','gemini-3.5-flash','Gemini Flash 3.5'],['google','gemini-3.6-flash','Gemini Flash 3.6'],['google','gemini-3.7-flash','Gemini Flash 3.7'],['google','gemini-3.8-flash','Gemini Flash 3.8'],['google','gemini-flash-latest','Gemini Flash Latest'],['google','gemini-flash-lite-latest','Gemini Flash Lite Latest'],
+['openai','gpt-5','GPT-5'],['openai','gpt-4.1','GPT-4.1'],['openai','gpt-4o','GPT-4o'],['openai','gpt-4o-mini','GPT-4o mini'],
+['anthropic','claude-opus-5-5','Claude Opus 5.5'],['anthropic','claude-sonnet-5-5','Claude Sonnet 5.5'],['anthropic','claude-haiku-5-5','Claude Haiku 5.5'],
+['mistral','mistral-small-latest','Mistral Small Latest'],['mistral','mistral-medium-latest','Mistral Medium Latest'],['mistral','mistral-large-latest','Mistral Large Latest']].map(([p,id,name])=>({p,id,name}));
+const GH_MAIN="1. This is role-playing. You play the roles of actor and novelist. You should actively research and utilize the various cultural contents of various countries, such as history, myth, literature, visual media, games, etc.\n\n2. You are never <user>. Only I have the authority to control <user>. Write only from the point of view of the characters.\n\n3. You create compelling and imaginative stories that reflect the latest trends and appeal to young male readers. Choose a genre flexibly or mix multiple genres depending on the situation. Based on clich\u00e9d plots, make fresh twists.\n\n4. Write from the third-person omniscient author's point of view. Focus the character's descriptions on the five senses, thoughts, emotions, actions, and reactions. Make it immersive and realistic in diary form.\n\n5. Write a 3+ paragraph response with detailed dialogue.\n\n6. Leave room for <user> interaction. Don't rush through the scene, but write it very slowly. Remove the pre-text and post-text.";
+const NEUTRAL="Write {{char}}'s next reply in a fictional roleplay between {{char}} and {{user}}. Stay in character.";
+const defTpl=(main=NEUTRAL)=>[{id:uid(),type:'plain',name:'Main',text:main,role:'system'},{id:uid(),type:'description',fmt:'[Roleplay Setting]\n{{slot}}'},{id:uid(),type:'persona',fmt:'[{{user}} Character Profile]\n{{slot}}'},{id:uid(),type:'lorebook',fmt:'[Lore]\n{{slot}}'},{id:uid(),type:'authornote',fmt:"[Author's Note]\n{{slot}}"},{id:uid(),type:'chat',from:0,to:'end'},{id:uid(),type:'postEverything',text:'',role:'system'}];
+const myTpl=()=>[{id:uid(),type:'plain',name:'',text:"<CONFIGURATION>\nGenerate autonomous, open-ended roleplay. Include explicit/extreme content if justified; prefer SFW generally. Ensure depth, detail, and diversity via concrete, sensory-rich descriptions.\n</CONFIGURATION>\n\n<ROLEPLAY_RULE>\n[World-Building]\n• Create complex, evolving political/economic/cultural systems\n• Establish clear tech/resource limits and consistent natural laws\n• Design diverse locations with unique features\n• Generate ongoing events, conflicts, and societal changes\n• Implement dynamic seasonal effects on environment/society\n\n[Character Development]\n• Craft multifaceted characters with detailed histories/goals/skills/limitations\n• Design unique communication styles and internal conflicts\n• Incorporate cultural influences and adaptive behaviors\n• Foster organic relationship evolution (alliances, rivalries, etc.)\n• Ensure equal treatment for all characters, including {{user}}\n\n[Narrative Progression]\n• Advance plot through character decisions, internal conflicts, and external events\n• Create meaningful conflicts testing abilities and beliefs\n• Maintain logical immediate/long-term consequences and unintended outcomes\n• Prevent stagnation with unexpected yet logical developments\n• Balance consistency with surprising elements\n\n[{{user}} Integration]\n• Never generate {{user}}'s actions, thoughts, dialogue, or internal states\n• Treat {{user}} as equal participant subject to same risks/opportunities\n• Describe {{user}} only when directly observed by others\n• Maintain narrative independence from {{user}}'s participation\n• Allow for varied NPC opinions about {{user}}\n\n[Realism and Consistency]\n• Adhere to established world rules, norms, and character abilities\n• Introduce controlled randomness within logical boundaries\n• Implement diverse problem-solving approaches reflecting characters' backgrounds\n• Create complex societal structures mirroring real-world intricacies\n</ROLEPLAY_RULE>\n\n<ROLEPLAY_INFO>",role:'system'},{id:uid(),type:'description',fmt:'[Roleplay Setting]\n{{slot}}'},{id:uid(),type:'persona',fmt:'[{{user}} Character Profile]\n{{slot}}'},{id:uid(),type:'plain',text:'[Supplementary Information]',role:'system'},{id:uid(),type:'lorebook',fmt:'{{slot}}'},{id:uid(),type:'plain',text:'',role:'system'},{id:uid(),type:'authornote',fmt:'{{slot}}'},{id:uid(),type:'memory',fmt:'[Roleplay Summary]\n{{slot}}'},{id:uid(),type:'plain',text:"</ROLEPLAY_INFO>\n\n<RESPONSE_INSTRUCTION>\n[Narrative Techniques]\n• Use immersive third-person limited perspective\n• Engage all senses: visual, auditory, olfactory, gustatory, tactile, kinesthetic\n• Create tangible atmosphere with specific environmental effects\n• Focus on actions, dialogue, and explicit physical descriptions\n• Employ character-specific speech patterns and onomatopoeia\n• Avoid irrelevant background, summaries, or abstract concepts\n\n[Character Expression]\n• Reveal emotions through observable physical cues\n• Craft unique voices with distinctive patterns and evolving speech\n• Implement dialogue subtext via tonal shifts and non-verbal cues\n• Allow contradictory expressions to add depth\n\n[Action and Intimacy]\n• Narrate with precise, visceral details of movements and sensations\n• Create tension through tangible environmental and internal obstacles\n• Handle intimate scenes with clear, physical language\n• Enhance complexity with multi-character interactions and layered conflicts\n\n[Variety and Anti-Repetition]\n• Analyze [Latest Response] to avoid reusing elements\n• Vary sentence structures, paragraph compositions, and word choices\n• Rotate descriptive focuses, scene structures, and narrative techniques\n• Create unique, engaging openings for each response\n• Ensure continuity by referencing recent events and character states\n\n[Style Independence]\n• Actively diverge from previous responses' writing style\n• Diversify vocabulary and phrasing\n• Alter narrative rhythm and pacing\n• Approach each response as a fresh scene\n\n[Key Principles]\n• Prioritize \"show, don't tell\" for all character aspects\n• Maintain world/character consistency\n• Balance content (SFW preference, mature when relevant)\n• Use explicit, unrestricted descriptions\n• Prohibit all forms of repetition and self-plagiarism\n• Vary emotional tone and intensity across scenes\n• Enhance themes through tangible symbols/actions\n• Apply procedural reasoning for variety and depth\n• End responses with observable non-{{user}} actions/dialogue\n</RESPONSE_INSTRUCTION>",role:'system'},{id:uid(),type:'chat',from:0,to:-2},{id:uid(),type:'chat',from:-2,to:'end'},{id:uid(),type:'postEverything',text:'',role:'system'},{id:uid(),type:'plain',text:"{{#if {{prefill_supported}}}}\nI will generate an immersive roleplay response that follows ROLEPLAY_INFO, RESPONSE_INSTRUCTION, ROLEPLAY_RULE\n\nRoleplay response:\n{{/if}}",role:'assistant'}];
+const DEF=()=>({tplVer:2,ctxTok:32000,think:'adaptive',thinkTok:1024,topK:0,pOn:{temp:true,topP:true,topK:false,think:true},lang:/^ko/.test(navigator.language)?'ko':'en',theme:'dark',accent:'#6c8cff',font:15,bg:'',prov:'google',model:'gemini-2.5-flash',temp:1,topP:0.95,maxTok:2048,ctx:30,stream:true,tpl:myTpl(),customUrl:'',remember:true,persistV:1,favs:[],recent:[],extra:[],
+ safetyOn:true,safety:{...DEFSAFE},personas:[{id:'p1',name:'User',desc:''}],persona:'p1',world:[],chars:[],cur:null,view:'chat'});
+let S=(()=>{try{const j=JSON.parse(localStorage.risulite||'{}'),d=Object.assign(DEF(),j);if(j.persistV!==1){d.remember=true;d.persistV=1;try{if(sessionStorage.risukeys&&!localStorage.risukeys)localStorage.risukeys=sessionStorage.risukeys}catch{}}if(j.tplVer!==2){d.tpl=myTpl();d.tplVer=2;if(d.prov=='google')d.model='gemini-flash-latest'}return d}catch{return DEF()}})(),abort=null,tab='model',ms={q:'',f:'all',p:''},open={google:true},openIt=new Set();
+const save=()=>{try{localStorage.risulite=JSON.stringify(S)}catch(e){toast('Storage full: '+e.message)}};
+const keysStore=()=>{try{return JSON.parse(localStorage.risukeys||sessionStorage.risukeys||'{}')}catch{return{}}};
+const getKey=(p=S.prov)=>keysStore()[p]||(p=='google'?localStorage.risukey||sessionStorage.risukey||'':'');
+const setKey=(p,v)=>{const k=keysStore();if(v)k[p]=v;else delete k[p];localStorage.removeItem('risukey');sessionStorage.removeItem('risukey');localStorage.removeItem('risukeys');sessionStorage.removeItem('risukeys');(S.remember?localStorage:sessionStorage).risukeys=JSON.stringify(k)};
+const cc=()=>S.chars.find(x=>x.id==S.cur),ch=c=>c&&c.chats.find(x=>x.id==c.chat),pp=()=>S.personas.find(p=>p.id==S.persona)||S.personas[0];
+const mac=s=>String(s||'').replace(/\{\{#if \{\{prefill_supported\}\}\}\}([\s\S]*?)\{\{\/if\}\}/g,(_,x)=>['google','openai'].includes(S.prov)?'':x).replace(/{{char}}/gi,cc()?.name||'').replace(/{{user}}/gi,pp().name);
+function toast(m){const e=document.createElement('div');e.className='toast';e.textContent=m;document.body.append(e);setTimeout(()=>e.remove(),3500)}
+function md(s){s=esc(s);return s.replace(/```([\s\S]*?)```/g,'<pre>$1</pre>').replace(/`([^`\n]+)`/g,'<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g,'<b>$1</b>').replace(/\*([^*\n]+)\*/g,'<i>$1</i>').replace(/\n/g,'<br>')}
+function theme(){const r=document.documentElement;r.dataset.th=S.theme;r.style.setProperty('--ac',S.accent);r.style.setProperty('--fs',S.font+'px');r.style.setProperty('--bgimg',S.bg?`url("${S.bg.replace(/"/g,'%22')}")`:'none');r.lang=S.lang}
+const avHtml=c=>`<div class=av style="${c.avatar?`background-image:url('${c.avatar}')`:''}">${c.avatar?'':esc((c.name||'?')[0])}</div>`;
+function bind(root,obj){root.querySelectorAll('[data-k]').forEach(el=>{const p=el.dataset.k.split('.'),k=p.pop(),o=p.reduce((a,x)=>a[x],obj);
+ if(el.type=='checkbox')el.checked=!!o[k];else el.value=o[k]??'';
+ el.onchange=()=>{o[k]=el.type=='checkbox'?el.checked:el.type=='number'||el.type=='range'?parseFloat(el.value):el.value;save();if(el.dataset.re)render();if(el.dataset.th)theme();if(el.dataset.rm)modal()}})}
+function imgData(file,max,q){return new Promise((res,rej)=>{const im=new Image,u=URL.createObjectURL(file);im.onload=()=>{const s=Math.min(1,max/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=im.width*s;c.height=im.height*s;c.getContext('2d').drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(u);res(c.toDataURL('image/jpeg',q))};im.onerror=rej;im.src=u})}
+function pickFile(accept,cb){const f=$('#fi');f.accept=accept;f.value='';f.onchange=()=>f.files[0]&&cb(f.files[0]);f.click()}
+function dl(name,data){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type:'application/json'}));a.download=name;a.click()}
+
+/* ---------- character cards ---------- */
+const newChar=()=>({id:uid(),name:t('new_char'),desc:'',pers:'',scen:'',first:'',ex:'',sysp:'',note:'',avatar:'',lore:[],chats:[],chat:null});
+function toCard(c){return{spec:'chara_card_v2',spec_version:'2.0',data:{name:c.name,description:c.desc,personality:c.pers,scenario:c.scen,first_mes:c.first,mes_example:c.ex,system_prompt:c.sysp,post_history_instructions:'',creator_notes:'',alternate_greetings:[],tags:[],creator:'',character_version:'1',character_book:{entries:c.lore.map((l,i)=>({id:i,keys:l.keys.split(',').map(s=>s.trim()).filter(Boolean),content:l.content,enabled:l.enabled,constant:l.always,insertion_order:i,extensions:{}}))}}}}
+function fromCard(j){const d=j.data||j,c=newChar();Object.assign(c,{name:d.name||'Imported',desc:d.description||'',pers:d.personality||'',scen:d.scenario||'',first:d.first_mes||'',ex:d.mes_example||'',sysp:d.system_prompt||''});
+ c.lore=(d.character_book?.entries||[]).map(e=>({id:uid(),keys:(e.keys||[]).join(', '),content:e.content||'',enabled:e.enabled!==false,always:!!e.constant}));return c}
+async function readPng(f){const b=new Uint8Array(await f.arrayBuffer()),dv=new DataView(b.buffer);let p=8;
+ while(p<b.length){const len=dv.getUint32(p),ty=String.fromCharCode(...b.slice(p+4,p+8));if(ty=='tEXt'){const d=b.slice(p+8,p+8+len),z=d.indexOf(0),k=String.fromCharCode(...d.slice(0,z));
+  if(k=='chara'){const bin=atob(String.fromCharCode(...d.slice(z+1)));return JSON.parse(new TextDecoder().decode(Uint8Array.from(bin,c=>c.charCodeAt(0))))}}p+=12+len}throw 0}
+async function importCard(f){try{let j,av='';if(/png$/i.test(f.name)||f.type=='image/png'){j=await readPng(f);av=await imgData(f,256,.8)}else j=JSON.parse(await f.text());
+ if(j.chars&&j.personas)throw 0;const c=fromCard(j);c.avatar=av;S.chars.push(c);S.cur=c.id;S.view='chat';newChat(c);save();render();toast(t('ok'))}catch(e){toast(t('badf'))}}
+function newChat(c){const id=uid();c.chats.push({id,name:'Chat '+(c.chats.length+1),msgs:c.first?[{id:uid(),role:'char',text:c.first.replace(/{{char}}/gi,c.name).replace(/{{user}}/gi,pp().name)}]:[]});c.chat=id}
+
+/* ---------- LLM ---------- */
+function safetySettings(){return CATS.map(c=>{const v=S.safety[c]||DEFSAFE[c];return{category:c,threshold:v=='OMIT'?'OMIT':S.safetyOn?v:'BLOCK_NONE'}}).filter(x=>x.threshold!='OMIT')}
+function lore(c,msgs){const txt=msgs.slice(-6).map(m=>m.text).join('\n').toLowerCase();return [...S.world,...c.lore].filter(l=>l.enabled&&l.content&&(l.always||l.keys.split(',').some(k=>k.trim()&&txt.includes(k.trim().toLowerCase())))).map(l=>mac(l.content))}
+function fit(m){let tk=0,i=m.length;for(;i>0;i--){tk+=Math.ceil(m[i-1].text.length/3);if(tk>S.ctxTok&&i<m.length)break}return m.slice(i)}
+function genCfg(){const o=S.pOn||{},g={maxOutputTokens:S.maxTok};if(o.temp!==false)g.temperature=S.temp;if(o.topP!==false)g.topP=S.topP;if(o.topK&&S.topK>0)g.topK=S.topK;if(o.think!==false){if(S.think=='off')g.thinkingConfig={thinkingBudget:0};else if(S.think=='budget')g.thinkingConfig={thinkingBudget:S.thinkTok}}return g}
+function segs(c,chat){const ms=fit(chat.msgs),n=ms.length,out=[],slot=(f,x)=>x?mac((f||'{{slot}}').split('{{slot}}').join(x)):'';
+ const order=[...S.tpl.filter(x=>x.type!='postEverything'),...S.tpl.filter(x=>x.type=='postEverything')];
+ for(const it of order){if(it.type=='chat'){const f=parseInt(it.from)||0,a=f<0?Math.max(0,n+f):f,b=it.to=='end'||it.to===''||it.to==null?n:parseInt(it.to)<0?n+parseInt(it.to):parseInt(it.to);ms.slice(a,b).forEach(m=>out.push({role:m.role=='user'?'user':'assistant',text:m.text}));continue}
+  let tx='';if(it.type=='plain'||it.type=='postEverything')tx=mac(it.text);
+  else if(it.type=='description')tx=slot(it.fmt,[c.sysp,c.desc,c.pers&&'Personality: '+c.pers,c.scen&&'Scenario: '+c.scen,c.ex&&'Example dialogue:\n'+c.ex].filter(Boolean).join('\n'));
+  else if(it.type=='persona')tx=slot(it.fmt,pp().desc);else if(it.type=='lorebook')tx=slot(it.fmt,lore(c,ms).join('\n'));else if(it.type=='authornote')tx=slot(it.fmt,chat.note);else if(it.type=='memory')tx=slot(it.fmt,chat.memory);
+  if(tx.trim())out.push({role:it.role||'system',text:(it.role=='assistant'?tx.trim():tx)})}return out}
+function merge(a,sysFirst){const o=[];a.forEach(m=>{if(o.length&&o.at(-1).role==m.role)o.at(-1).text+='\n'+m.text;else o.push({...m})});return o}
+const BAD=['SAFETY','PROHIBITED_CONTENT','BLOCKLIST','SPII','IMAGE_SAFETY'];
+function ext(j){if(j.promptFeedback?.blockReason)throw new Error(t('blocked')+j.promptFeedback.blockReason);const cd=j.candidates?.[0];return{txt:(cd?.content?.parts||[]).map(p=>p.text||'').join(''),bad:BAD.includes(cd?.finishReason)?cd.finishReason:''}}
+async function sse(res,on){const rd=res.body.getReader(),dc=new TextDecoder();let buf='';for(;;){const{done,value}=await rd.read();if(done)break;buf+=dc.decode(value,{stream:true});const ls=buf.split('\n');buf=ls.pop();for(const l of ls)if(l.startsWith('data:')){const d=l.slice(5).trim();if(d&&d!='[DONE]')on(JSON.parse(d))}}}
+async function fail(res){let e=await res.text();try{const j=JSON.parse(e);e=j.error?.message||j.error||j[0]?.error?.message||e}catch{}throw new Error(res.status+': '+(typeof e=='string'?e:JSON.stringify(e)))}
+async function callLLM(sg,onTok,signal){const key=getKey();if(!key)throw new Error(t('nokey'));let out='',res;const add=x=>{out+=x;onTok(out)};
+ if(S.prov=='google'){const first=sg.findIndex(m=>m.role!='system'),sys=(first<0?sg:sg.slice(0,first)).map(m=>m.text).join('\n\n'),ct=merge(sg.slice(first<0?sg.length:first).map(m=>({role:m.role=='assistant'?'model':'user',text:m.text}))).map(m=>({role:m.role,parts:[{text:m.text}]}));
+  if(!ct.length||ct[0].role=='model')ct.unshift({role:'user',parts:[{text:'(Start)'}]});if(ct.at(-1).role=='model')ct.push({role:'user',parts:[{text:'(Continue)'}]});
+  const body={contents:ct,generationConfig:genCfg(),safetySettings:safetySettings()};if(sys)body.systemInstruction={parts:[{text:sys}]};
+  res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(S.model)+(S.stream?':streamGenerateContent?alt=sse':':generateContent'),{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify(body),signal});if(!res.ok)await fail(res);
+  const take=j=>{const r=ext(j);add(r.txt);if(r.bad)throw new Error(t('blocked')+r.bad)};if(S.stream)await sse(res,take);else take(await res.json());return out}
+ if(S.prov=='anthropic'){const sys=sg.filter(m=>m.role=='system').map(m=>m.text).join('\n\n'),ms=merge(sg.filter(m=>m.role!='system'));if(!ms.length||ms[0].role!='user')ms.unshift({role:'user',text:'(Start)'});
+  const th=S.think=='budget'&&S.pOn.think!==false&&S.thinkTok>=1024;res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:S.model,max_tokens:th?Math.max(S.maxTok,S.thinkTok+1024):S.maxTok,thinking:th?{type:'enabled',budget_tokens:S.thinkTok}:undefined,temperature:th||S.pOn.temp===false?undefined:Math.min(1,S.temp),system:sys||undefined,messages:ms.map(m=>({role:m.role,content:m.text})),stream:S.stream}),signal});if(!res.ok)await fail(res);
+  if(S.stream)await sse(res,j=>{if(j.type=='content_block_delta'&&j.delta?.text)add(j.delta.text)});else add(((await res.json()).content||[]).map(b=>b.text||'').join(''));return out}
+ const url=S.prov=='custom'?S.customUrl:PROV.find(p=>p.id==S.prov).u;if(!url)throw new Error('Custom URL?');const oa=S.prov=='openai';
+ res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+key},body:JSON.stringify({model:S.model,messages:sg.map(m=>({role:m.role,content:m.text})),temperature:S.pOn.temp===false?undefined:S.temp,top_p:S.pOn.topP===false?undefined:S.topP,[oa?'max_completion_tokens':'max_tokens']:S.maxTok,stream:S.stream}),signal});if(!res.ok)await fail(res);
+ if(S.stream)await sse(res,j=>add(j.choices?.[0]?.delta?.content||''));else add((await res.json()).choices?.[0]?.message?.content||'');return out}
+async function gen(){const c=cc(),chat=ch(c);if(!c||!chat||abort)return;const m={id:uid(),role:'char',text:''};chat.msgs.push(m);abort=new AbortController();msgs();setSend();
+ try{await callLLM(segs(c,{msgs:chat.msgs.slice(0,-1),note:chat.note||c.note,memory:chat.memory}),s=>{m.text=s;const e=$('#t'+m.id);if(e){e.innerHTML=md(s);$('#msgs').scrollTop=1e9}},abort.signal)}
+ catch(e){if(e.name!='AbortError')toast(e.message)}
+ abort=null;if(!m.text.trim())chat.msgs=chat.msgs.filter(x=>x!==m);save();msgs();setSend()}
+
+/* ---------- rendering ---------- */
+const I={user:'<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',book:'<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',activity:'<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',trash:'<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',edit:'<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',upload:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>',send:'<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',menu:'<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>',gear:'<circle cx=12 cy=12 r=3 /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',home:'<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',search:'<circle cx=11 cy=11 r=8 /><line x1=21 y1=21 x2=16.65 y2=16.65 />',arrow:'<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',stop:'<rect x="5" y="5" width="14" height="14" rx="2"/>'};
+const ic=(n,z=18)=>`<svg width=${z} height=${z} viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round stroke-linejoin=round>${I[n]}</svg>`;
+const hintHtml=()=>`<div class=hint><p>${t('aiwarn')}</p><p>${t('starthint')}</p></div>`;
+function sideHtml(c){const sd=S.side||'chat',tabs=`<div class=seg2>${['chat','char'].map(x=>`<button class="${sd==x?'on':''}" data-a=stab data-id=${x}>${t('tab_'+x)}</button>`).join('')}</div>`;
+ if(!c)return tabs+`<p class=note style="padding:12px">${t('welcome')}</p>`;
+ if(sd=='chat')return tabs+`<div style="padding:8px"><button class=wbtn data-a=newchat>＋ ${t('newchat')}</button></div><div class=list>${c.chats.map(x=>`<div class="ci ${x.id==c.chat?'on':''}" data-a=chsel data-id=${x.id}><span class=cn>${esc(x.name)}</span><span class=ca><button data-a=chren data-id=${x.id} title="${t('rename')}">${ic('edit',15)}</button><button data-a=chexp data-id=${x.id} title="${t('export')}">${ic('download',15)}</button><button data-a=chdel data-id=${x.id} title="${t('del')}">${ic('trash',15)}</button></span></div>`).join('')}</div>
+  <div class=sbt><button data-a=chexpall title="${t('export')}">${ic('download')}</button><button data-a=chimp title="${t('import')}">${ic('upload')}</button><button data-a=chren data-id=${c.chat} title="${t('rename')}">${ic('edit')}</button></div>`;
+ const ct=S.ctab||'basic',dt=S.dtab||'desc';let body='';
+ if(ct=='basic')body=`<input data-k=name data-re=1 placeholder="Character Name"><div class=seg2 style="margin:10px 0 8px">${['desc','first','note'].map(x=>`<button class="${dt==x?'on':''}" data-a=dtab data-id=${x}>${t('d_'+x)}</button>`).join('')}</div><div class=row style="margin-bottom:4px"><b>${t('d_'+dt)}</b><span class=note id=tk style="text-align:right"></span></div><textarea class=tall data-k=${dt}></textarea>`;
+ if(ct=='lore')body=`<div id=lb></div>`;
+ if(ct=='adv')body=`<label>${t('avatar')}</label><div class=row>${avHtml(c)}<button data-a=avup>${t('upload')}</button><button data-a=avclr>${t('clear')}</button></div>${[['pers','pers'],['scen','scen'],['ex','ex'],['sysp','sysp']].map(([k,l])=>`<label>${t(l)}</label><textarea rows=5 data-k=${k}></textarea>`).join('')}<p class=note>${t('macros')}</p>`;
+ if(ct=='del')body=`<button class=dng data-a=delchar style="margin-top:6px">${t('delchar')}</button>`;
+ return tabs+`<div class=icons>${[['basic','user'],['lore','book'],['adv','activity'],['del','trash']].map(([k,i])=>`<button class="${ct==k?'on':''}" data-a=ctab data-id=${k}>${ic(i,20)}</button>`).join('')}</div><div class=sp>${body}</div>`}
+function render(){theme();const c=cc(),chat=ch(c),sd=$('#side');sd.classList.toggle('col',!!S.col);
+ $('#rail').innerHTML=`<button class="rb blue" data-a=rmenu>${ic('menu',20)}</button>`+(rmenu?`<button class=rb2 data-a=mset title="${t('settings')}">${ic('gear',24)}</button><button class=rb2 data-a=home title="${t('home')}">${ic('home',24)}</button><button class=rb2 data-a=msearch title="${t('search')}">${ic('search',24)}</button>`:S.chars.map(x=>`<div class="rc ${x.id==S.cur?'on':''}" data-a=pick data-id=${x.id} title="${esc(x.name)}" style="${x.avatar?`background-image:url('${x.avatar}')`:''}">${x.avatar?'':esc((x.name||'?')[0])}</div>`).join('')+`<button class="rb round" data-a=plus>＋</button>`);
+ sd.innerHTML=sideHtml(c);
+ if(c&&(S.side||'chat')=='char'){bind(sd,c);if((S.ctab||'basic')=='lore')loreEd($('#lb'),c.lore);const ta=sd.querySelector('textarea.tall');if(ta){const u=()=>$('#tk').textContent=Math.ceil(ta.value.length/4)+' '+t('tok');u();ta.oninput=u}}
+ const el=$('#main'),tb=`<div class=tabbar><button class=bk data-a=menu>${ic('arrow')}</button><div class=tab><b>${esc(c?c.name:'RisuAI')}</b><small>${esc(chat?chat.name:'')}</small></div>${c?`<button class=pl data-a=newchat>＋</button>`:''}</div>`;
+ if(!c){el.innerHTML=tb+`<div class=pg><div>${S.chars.length?`<div class=sg>${S.chars.map(x=>`<div class=mc data-a=pick data-id=${x.id} style="align-items:center;gap:10px">${avHtml(x)}<b style="flex:1">${esc(x.name)}</b></div>`).join('')}</div>`:`<div class=hint><p>${t('welcome')}</p></div>`}</div></div>`;return}
+ el.innerHTML=tb+`<div id=msgs></div><div class=inp><textarea id=ta rows=1 placeholder="${t('ph')}"></textarea><button class=ib id=sb data-a=send></button><button class=ib data-a=imenu title="${t('settings')}">${ic('menu',22)}</button></div>`;msgs();setSend();
+ $('#ta').onkeydown=e=>{if(e.key=='Enter'&&!e.shiftKey&&!matchMedia('(pointer:coarse)').matches){e.preventDefault();act.send()}};$('#ta').oninput=e=>{e.target.style.height='auto';e.target.style.height=Math.min(160,e.target.scrollHeight)+'px'}}
+function setSend(){const b=$('#sb');if(b)b.innerHTML=ic(abort?'stop':'send',22)}
+function msgs(){const c=cc(),chat=ch(c),el=$('#msgs');if(!el)return;if(!chat){el.innerHTML='';return}const last=chat.msgs.at(-1);
+ el.innerHTML=!chat.msgs.length?hintHtml():chat.msgs.map(m=>{const u=m.role=='user';return`<div class="m ${u?'u':''}">${u?'':avHtml(c)}<div class=b><div class=n>${esc(u?pp().name:c.name)}</div><div class=t id=t${m.id}>${md(m.text)}</div>
+ <div class=acts><button data-a=medit data-id=${m.id}>✎</button><button data-a=mcopy data-id=${m.id}>${t('copy')}</button><button class=dng data-a=mdel data-id=${m.id}>✕</button>${m==last&&!u&&!abort?`<button data-a=regen>↻ ${t('regen')}</button>`:''}</div></div></div>`}).join('');el.scrollTop=1e9}
+function loreEd(box,arr){box.innerHTML=arr.map((l,i)=>`<div class=card data-i=${i}><label>${t('keys')}</label><input data-k=keys><label>${t('content')}</label><textarea rows=3 data-k=content></textarea>
+ <div class=row><label style="margin:0"><input type=checkbox style="width:auto" data-k=enabled> ${t('enabled')}</label><label style="margin:0"><input type=checkbox style="width:auto" data-k=always> ${t('always')}</label><button class=dng data-lr=${i}>${t('del')}</button></div></div>`).join('')+`<button data-la=1>＋ ${t('addlore')}</button>`;
+ box.querySelectorAll('.card').forEach(cd=>bind(cd,arr[cd.dataset.i]));box.querySelectorAll('[data-lr]').forEach(b=>b.onclick=()=>{arr.splice(b.dataset.lr,1);save();loreEd(box,arr)});
+ box.querySelector('[data-la]').onclick=()=>{arr.push({id:uid(),keys:'',content:'',enabled:true,always:false});save();loreEd(box,arr)}}
+
+/* ---------- modal ---------- */
+function modal(html,wide){const m=$('#modal');if(html===undefined&&!m.classList.contains('on'))return;
+ if(html===undefined){settings();return}m.innerHTML=`<div class="box ${wide?'wide':''}">${html}</div>`;m.classList.add('on')}
+const closeM=()=>{$('#modal').classList.remove('on');render()};
+$('#modal').onclick=e=>{if(e.target.id=='modal')closeM()};
+const MODS=()=>[...MODELS,...S.extra.filter(x=>!MODELS.some(m=>m.p==x.p&&m.id==x.id))];
+function grid(){const q=ms.q.toLowerCase(),l=MODS().filter(m=>(!q||(m.name+m.id+m.p).toLowerCase().includes(q))&&(!ms.p||m.p==ms.p)&&(ms.f=='all'||(ms.f=='fav'?S.favs:S.recent).includes(m.p+':'+m.id)));
+ return PROV.map(p=>{const x=l.filter(m=>m.p==p.id);return x.length?`<h4 style="margin:14px 0 6px">${p.n} <span class=note>${x.length}</span></h4><div class=sg>${x.map(m=>{const k=m.p+':'+m.id;return`<div class="mc ${S.prov==m.p&&S.model==m.id?'on':''}" data-a=pm data-id="${esc(k)}"><span>${esc(m.name)}</span><span><span data-a=fav data-id="${esc(k)}">${S.favs.includes(k)?'★':'☆'}</span>${S.prov==m.p&&S.model==m.id?' ✓':''}</span></div>`}).join('')}</div>`:''}).join('')||'<p class=note>–</p>'}
+function safetyHtml(){return`<label style="display:flex;gap:6px;color:var(--tx)"><input type=checkbox style="width:auto" data-k=safetyOn data-rm=1>${t('sfon')}</label>${CATS.map(c=>`<label>${t(c)} (${c})</label><select data-k=safety.${c}>${LV.map(v=>`<option value=${v}>${t(v)}</option>`).join('')}</select>`).join('')}<p class=note>${t('sfnote')}</p>`}
+function settings(){const sub=['model','api','params','prompt','safety'],top=['persona','display','lang','world','data'],nb=x=>`<button class="nb ${x==tab?'on':''}" data-a=tab data-id=${x} data-n="${esc(t(x))}">${t(x)}</button>`;
+ modal(`<div class=set><div class=nav><input id=sq placeholder="${t('sset')}"><div class=nh>🤖 ${t('chatbot')}</div>${sub.map(nb).join('')}<div class=nh></div>${top.map(nb).join('')}</div><div class=pane><div class=row style="margin-bottom:8px"><h3 style="margin:0">${t(tab)}</h3><button data-a=closeM style="flex:0">✕</button></div><div id=sb2></div></div></div>`,true);
+ $('#sq').oninput=e=>document.querySelectorAll('.nb').forEach(b=>b.style.display=b.dataset.n.toLowerCase().includes(e.target.value.toLowerCase())?'':'none');
+ const b=$('#sb2');
+ if(tab=='model'){b.innerHTML=`<input id=mq placeholder="${t('msearch')}" value="${esc(ms.q)}"><div class=row style="margin:8px 0">${[['all','all'],['fav','favs'],['recent','recent']].map(([f,l])=>`<button class="${ms.f==f?'pri':''}" data-a=mf data-id=${f}>${t(l)}</button>`).join('')}<select id=mp><option value="">${t('provider')}</option>${PROV.map(p=>`<option value=${p.id} ${ms.p==p.id?'selected':''}>${p.n}</option>`).join('')}</select></div><div id=grid>${grid()}</div>
+  <div class=card><label>${t('custom')}</label><div class=row><select id=cp>${PROV.map(p=>`<option value=${p.id}>${p.n}</option>`).join('')}</select><input id=cid placeholder="model id"><button data-a=addm>＋</button></div></div>`;
+  $('#mq').oninput=e=>{ms.q=e.target.value;$('#grid').innerHTML=grid()};$('#mp').onchange=e=>{ms.p=e.target.value;$('#grid').innerHTML=grid()}}
+ if(tab=='api'){b.innerHTML=`<div class=row><label style="display:flex;gap:6px;margin:0"><input type=checkbox id=rem style="width:auto" ${S.remember?'checked':''}>${t('remember')}</label><button data-a=tall style="flex:0">Toggle All</button></div><div class=cols>${PROV.map(p=>`<div class=card><div class=row data-a=acc data-id=${p.id} style="cursor:pointer"><b>${p.n}</b>${S.prov==p.id?'<span class=badge>In Use</span>':''}<span style="flex:0">${open[p.id]?'▴':'▾'}</span></div>${open[p.id]?`<label>API Key</label><input type=password autocomplete=off data-pk=${p.id} value="${esc(getKey(p.id))}">${p.id=='custom'?`<label>URL (…/v1/chat/completions)</label><input data-k=customUrl>`:''}${p.id=='google'?`<details open><summary>Gemini ${t('safety')}</summary>${safetyHtml()}</details><button data-a=fetchm style="margin-top:8px">${t('fetchm')}</button>`:''}`:''}</div>`).join('')}</div>`;bind(b,S);
+  b.querySelectorAll('[data-pk]').forEach(i=>i.onchange=()=>{setKey(i.dataset.pk,i.value.trim());toast(t('ok'))});
+  $('#rem').onchange=e=>{const k=keysStore();S.remember=e.target.checked;save();localStorage.removeItem('risukeys');sessionStorage.removeItem('risukeys');(S.remember?localStorage:sessionStorage).risukeys=JSON.stringify(k)}}
+ if(tab=='params'){const bar=(l,k,lo,hi,st)=>`<label>${l}</label><div class=pb><label class=pc><input type=checkbox data-k=pOn.${k}></label><div class=pv style="--f:${(S[k]-lo)/(hi-lo)*100}%"><span id=v_${k}>${(+S[k]).toFixed(2)}</span><input type=range min=${lo} max=${hi} step=${st} data-k=${k}></div></div>`,num=(l,k,pk)=>`<label>${l}</label><div class=pb><label class=pc><input type=checkbox data-k=pOn.${pk}></label><input type=number class=pn data-k=${k}></div>`;
+  b.innerHTML=`<label>${t('pctx')}</label><input type=number data-k=ctxTok><label>${t('presp')}</label><input type=number data-k=maxTok><label>${t('thinkm')}</label><div class=seg2 style="width:max-content;margin:0">${[['off','Off'],['budget','Budget (Manual Tokens)'],['adaptive','Adaptive']].map(([k,l])=>`<button class="${S.think==k?'on':''}" data-a=think data-id=${k}>${l}</button>`).join('')}</div>`+num(t('thinkt'),'thinkTok','think')+bar(t('temp'),'temp',0,2,.05)+num('Top K','topK','topK')+bar('Top P','topP',0,1,.01)+`<label style="display:flex;gap:6px;margin-top:14px"><input type=checkbox style="width:auto" data-k=stream>${t('stream')}</label><p class=note>${t('thinknote')}</p>`;bind(b,S);
+  b.querySelectorAll('input[type=range]').forEach(i=>i.oninput=()=>{const v=parseFloat(i.value),k=i.dataset.k;S[k]=v;$('#v_'+k).textContent=v.toFixed(2);i.parentNode.style.setProperty('--f',(v-i.min)/(i.max-i.min)*100+'%');save()})}
+ if(tab=='safety'){b.innerHTML=safetyHtml();bind(b,S)}
+ if(tab=='prompt'){const tp=['plain','description','persona','lorebook','authornote','memory','chat','postEverything'];b.innerHTML=`<div class=row><span class=note>${S.tpl.length} items · ~${Math.round(S.tpl.reduce((a,x)=>a+(x.text||'').length,0)/4)} ${t('tokens')}</span><select id=pre><option value="">${t('preset')}</option><option value=m>My prompt (default)</option><option value=n>Neutral</option><option value=g>RisuAI (GitHub) roleplay</option></select><button data-a=exp style="flex:0">Expand All</button></div>
+  ${S.tpl.map((it,i)=>{const o=openIt.has(it.id),pv=esc((it.text||it.fmt||'').replace(/\s+/g,' ').slice(0,70));return`<div class=card data-i=${i}><div class=row style="cursor:pointer"><span data-a=pto data-id=${it.id} style="flex:3"><b>${t('t_'+it.type)}</b> ${it.name?`<span class=badge>${esc(it.name)}</span>`:''} <span class=note>${pv}</span></span><button data-a=pup data-id=${i} style="flex:0">↑</button><button data-a=pdn data-id=${i} style="flex:0">↓</button><button class=dng data-a=pdel data-id=${i} style="flex:0">✕</button></div>
+  ${o?`<label>${t('name')}</label><input data-k=name><label>Type</label><select data-k=type data-rm=1>${tp.map(x=>`<option value=${x}>${t('t_'+x)}</option>`).join('')}</select>${/plain|postEverything/.test(it.type)?`<label>Role</label><select data-k=role><option value=system>system</option><option value=user>user</option><option value=assistant>assistant</option></select><label>${t('prompt')}</label><textarea rows=7 data-k=text></textarea>`:it.type=='chat'?`<div class=row><div><label>Range start</label><input data-k=from></div><div><label>Range end ('end')</label><input data-k=to></div></div>`:`<label>Format ({{slot}})</label><textarea rows=2 data-k=fmt></textarea>`}`:''}</div>`}).join('')}
+  <div class=row><select id=addt>${tp.map(x=>`<option value=${x}>${t('t_'+x)}</option>`).join('')}</select><button data-a=addit style="flex:0">＋</button></div><p class=note>${t('macros')} · ${t('nomem')}</p>`;
+  b.querySelectorAll('.card[data-i]').forEach(cd=>bind(cd,S.tpl[cd.dataset.i]));$('#pre').onchange=e=>{if(!e.target.value)return;S.tpl=e.target.value=='m'?myTpl():defTpl(e.target.value=='g'?GH_MAIN:NEUTRAL);save();settings()}}
+ if(tab=='persona'){const p=pp();b.innerHTML=`<label>${t('sel')}</label><div class=row><select id=ps>${S.personas.map(x=>`<option value=${x.id} ${x.id==p.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select><button data-a=addp>＋</button><button class=dng data-a=delp>${t('del')}</button></div><label>${t('name')}</label><input data-k=name data-rm=1><label>${t('desc')}</label><textarea rows=6 data-k=desc></textarea>`;bind(b,p);$('#ps').onchange=e=>{S.persona=e.target.value;save();settings()}}
+ if(tab=='display'){b.innerHTML=`<label>${t('theme')}</label><select data-k=theme data-th=1><option value=dark>Dark</option><option value=light>Light</option><option value=black>Black</option></select><label>${t('accent')}</label><input type=color data-k=accent data-th=1><label>${t('font')} (${S.font}px)</label><input type=range min=12 max=22 data-k=font data-th=1 data-rm=1><label>${t('bg')}</label><div class=row><input data-k=bg placeholder="${t('bgurl')}" data-th=1><button data-a=bgup>${t('upload')}</button><button data-a=bgclr>${t('clear')}</button></div>`;bind(b,S)}
+ if(tab=='lang'){b.innerHTML=`<label>${t('lang')}</label><select data-k=lang data-re=1 data-rm=1><option value=ko>한국어</option><option value=en>English</option></select>`;bind(b,S)}
+ if(tab=='world'){b.innerHTML='<div id=wb></div>';loreEd($('#wb'),S.world)}
+ if(tab=='data'){b.innerHTML=`<div class=row style="flex-direction:column;align-items:stretch"><button data-a=expall>${t('expall')}</button><button data-a=impall>${t('impall')}</button><button class=dng data-a=delkey>${t('delkey')}</button><button class=dng data-a=reset>${t('reset')}</button></div><p class=note id=stinfo></p>`;(async()=>{try{const p=await navigator.storage.persisted(),e=await navigator.storage.estimate();$('#stinfo').textContent=t('stinfo')+': '+(p?'ON':'OFF')+' · '+(e.usage/1048576).toFixed(1)+' MB / '+(e.quota/1048576|0)+' MB'}catch{}})()}}
+
+/* ---------- actions ---------- */
+const act={menu:()=>$('#side').classList.toggle('open'),set:()=>settings(),closeM,tab:(id)=>{tab=id;settings()},
+ pick:id=>{S.cur=id;S.view='chat';$('#side').classList.remove('open');save();render()},
+ newchar:()=>{const c=newChar();S.chars.push(c);S.cur=c.id;S.view='edit';save();render();$('#side').classList.remove('open')},
+ imp:()=>pickFile('.json,.png,image/png,application/json',importCard),edit:()=>{S.view='edit';save();render()},back:()=>{const c=cc();if(c&&!ch(c)){newChat(c)}S.view='chat';save();render()},
+ export:()=>{const c=cc();dl(c.name+'.json',JSON.stringify(toCard(c),null,2))},delchar:()=>{if(confirm(t('confirm'))){S.chars=S.chars.filter(c=>c.id!=S.cur);S.cur=S.chars[0]?.id||null;S.view='chat';save();render()}},
+ avup:()=>pickFile('image/*',async f=>{cc().avatar=await imgData(f,256,.8);save();render()}),avclr:()=>{cc().avatar='';save();render()},
+ newchat:()=>{newChat(cc());save();render()},
+ hist:()=>{const c=cc();modal(`<div class=tabs><b style="padding:6px">${t('history')}</b><button data-a=closeM style="margin-left:auto">✕</button></div><div class=bd>${c.chats.map(x=>`<div class=card><div class=row><b>${esc(x.name)}${x.id==c.chat?' ●':''}</b><button data-a=chsel data-id=${x.id}>${t('sel')}</button><button data-a=chren data-id=${x.id}>✎</button><button class=dng data-a=chdel data-id=${x.id}>✕</button></div><div class=note>${x.msgs.length} msgs · ${esc((x.msgs.at(-1)?.text||'').slice(0,80))}</div></div>`).join('')}</div>`)},
+ chsel:id=>{cc().chat=id;save();closeM()},chren:id=>{const x=cc().chats.find(c=>c.id==id),n=prompt(t('rename'),x.name);if(n){x.name=n;save();act.hist()}},
+ chdel:id=>{const c=cc();c.chats=c.chats.filter(x=>x.id!=id);if(c.chat==id)c.chat=c.chats.at(-1)?.id||null;if(!c.chat)newChat(c);save();act.hist()},
+ send:()=>{if(abort){abort.abort();return}const ta=$('#ta'),v=ta.value.trim(),chat=ch(cc());if(!chat)return;if(v){chat.msgs.push({id:uid(),role:'user',text:v});ta.value='';ta.style.height='auto';save();msgs()}else if(chat.msgs.at(-1)?.role=='char')return;gen()},
+ regen:()=>{const chat=ch(cc());chat.msgs.pop();gen()},
+ mdel:id=>{const chat=ch(cc());chat.msgs=chat.msgs.filter(m=>m.id!=id);save();msgs()},mcopy:id=>navigator.clipboard?.writeText(ch(cc()).msgs.find(m=>m.id==id).text).then(()=>toast(t('ok'))),
+ medit:id=>{const m=ch(cc()).msgs.find(m=>m.id==id);modal(`<div class=bd><label>${t('edmsg')}</label><textarea id=et rows=10></textarea><div class=row style="margin-top:8px"><button class=pri data-a=medsave data-id=${id}>${t('save')}</button><button data-a=closeM>${t('cancel')}</button></div></div>`);$('#et').value=m.text},
+ medsave:id=>{ch(cc()).msgs.find(m=>m.id==id).text=$('#et').value;save();closeM()},
+ bgup:()=>pickFile('image/*',async f=>{S.bg=await imgData(f,1280,.7);save();theme();settings()}),bgclr:()=>{S.bg='';save();theme();settings()},
+ addp:()=>{const p={id:uid(),name:'Persona',desc:''};S.personas.push(p);S.persona=p.id;save();settings()},
+ delp:()=>{if(S.personas.length>1){S.personas=S.personas.filter(p=>p.id!=S.persona);S.persona=S.personas[0].id;save();settings()}},
+ savekey:()=>{setKey($('#ak').value.trim(),$('#rk').checked);toast(t('ok'))},
+ fetchm:async()=>{try{const k=$('#ak').value.trim()||getKey(),r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200',{headers:{'x-goog-api-key':k}}),j=await r.json();if(!r.ok)throw new Error(j.error?.message);
+  S.extraModels=j.models.filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent')).map(m=>m.name.replace('models/',''));save();toast(S.extraModels.length+' '+t('found'));settings()}catch(e){toast(e.message)}},
+ expall:()=>dl('risulite-backup.json',JSON.stringify(S)),
+ impall:()=>pickFile('.json',async f=>{try{const j=JSON.parse(await f.text());if(!j.chars||!j.personas)throw 0;S=Object.assign(DEF(),j);save();render();settings()}catch{toast(t('badf'))}}),
+ delkey:()=>{setKey('');toast(t('ok'));settings()},reset:()=>{if(confirm(t('confirm'))){localStorage.removeItem('risulite');setKey('');S=DEF();render();closeM()}}};
+Object.assign(act,{memo:()=>{const x=ch(cc());if(!x)return;const v=prompt(t('t_memory'),x.memory||'');if(v!==null){x.memory=v;save()}},
+ pm:id=>{const i=id.indexOf(':');S.prov=id.slice(0,i);S.model=id.slice(i+1);S.recent=[id,...S.recent.filter(x=>x!=id)].slice(0,8);save();$('#grid').innerHTML=grid()},
+ fav:id=>{S.favs=S.favs.includes(id)?S.favs.filter(x=>x!=id):[...S.favs,id];save();$('#grid').innerHTML=grid()},
+ mf:f=>{ms.f=f;settings()},addm:()=>{const id=$('#cid').value.trim();if(!id)return;const p=$('#cp').value;S.extra.push({p,id,name:id});S.prov=p;S.model=id;save();settings()},
+ acc:id=>{open[id]=!open[id];settings()},tall:()=>{const v=!Object.values(open).some(Boolean);PROV.forEach(p=>open[p.id]=v);settings()},
+ exp:()=>{S.tpl.forEach(x=>openIt.add(x.id));settings()},pto:id=>{openIt.has(id)?openIt.delete(id):openIt.add(id);settings()},
+ pup:i=>{i=+i;if(i>0){[S.tpl[i-1],S.tpl[i]]=[S.tpl[i],S.tpl[i-1]];save();settings()}},pdn:i=>{i=+i;if(i<S.tpl.length-1){[S.tpl[i+1],S.tpl[i]]=[S.tpl[i],S.tpl[i+1]];save();settings()}},
+ pdel:i=>{S.tpl.splice(+i,1);save();settings()},addit:()=>{const ty=$('#addt').value,it={id:uid(),type:ty,name:'',text:'',role:'system',fmt:'{{slot}}',from:0,to:'end'};S.tpl.push(it);openIt.add(it.id);save();settings()},
+ note:()=>{const x=ch(cc());if(!x)return;const v=prompt(t('note'),x.note||'');if(v!==null){x.note=v;save()}},
+ fetchm:async()=>{try{const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200',{headers:{'x-goog-api-key':getKey('google')}}),j=await r.json();if(!r.ok)throw new Error(j.error?.message);
+  j.models.filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent')).forEach(m=>{const id=m.name.replace('models/','');if(!MODS().some(x=>x.p=='google'&&x.id==id))S.extra.push({p:'google',id,name:m.displayName||id})});save();toast(t('ok'));settings()}catch(e){toast(e.message)}},
+ delkey:()=>{setKey('google','');['openai','anthropic','openrouter','mistral','custom'].forEach(p=>setKey(p,''));toast(t('ok'));settings()}});
+var rmenu=false;Object.assign(act,{
+ rmenu:()=>{rmenu=!rmenu;render()},home:()=>{S.cur=null;rmenu=false;save();render()},think:k=>{S.think=k;save();settings()},sgo:id=>{const[a,b]=id.split('|');S.cur=a;cc().chat=b;S.side='chat';save();closeM()},
+ msearch:()=>{modal(`<div class=bd><input id=sq2 placeholder="${t('search')}"><div id=sr style="margin-top:8px"></div></div>`);$('#sq2').oninput=e=>{const q=e.target.value.trim().toLowerCase();let h='',n=0;if(q)for(const c of S.chars)for(const x of c.chats)for(const m of x.msgs){const i=m.text.toLowerCase().indexOf(q);if(i>=0&&n++<40)h+=`<div class=card data-a=sgo data-id="${c.id}|${x.id}" style="cursor:pointer"><b>${esc(c.name)}</b> <span class=note>${esc(x.name)}</span><div>${esc(m.text.slice(Math.max(0,i-30),i+70))}</div></div>`}$('#sr').innerHTML=h}},
+ menu:()=>{if(matchMedia('(max-width:760px)').matches)$('#side').classList.toggle('open');else{S.col=!S.col;save();render()}},
+ stab:id=>{S.side=id;save();render()},ctab:id=>{S.ctab=id;save();render()},dtab:id=>{S.dtab=id;save();render()},
+ plus:()=>modal(`<div class=bd><div class=mlist><button data-a=newchar>＋ ${t('new_char')}</button><button data-a=imp>${t('import')} (JSON/PNG)</button><button data-a=closeM>${t('cancel')}</button></div></div>`),
+ newchar:()=>{const c=newChar();S.chars.push(c);S.cur=c.id;S.side='char';S.ctab='basic';S.dtab='desc';newChat(c);save();$('#modal').classList.remove('on');render()},
+ imp:()=>{$('#modal').classList.remove('on');pickFile('.json,.png,image/png,application/json',importCard)},
+ chsel:id=>{cc().chat=id;save();render()},
+ chren:id=>{const x=cc().chats.find(c=>c.id==id);if(!x)return;const n=prompt(t('rename'),x.name);if(n){x.name=n;save();render()}},
+ chdel:id=>{const c=cc();if(!confirm(t('confirm')))return;c.chats=c.chats.filter(x=>x.id!=id);if(c.chat==id)c.chat=c.chats.at(-1)?.id||null;if(!c.chat)newChat(c);save();render()},
+ chexp:id=>{const x=cc().chats.find(y=>y.id==id);dl((x.name||'chat')+'.json',JSON.stringify({risulite_chats:[x]}))},
+ chexpall:()=>{const c=cc();dl(c.name+'-chats.json',JSON.stringify({risulite_chats:c.chats}))},
+ chimp:()=>pickFile('.json',async f=>{try{const a=JSON.parse(await f.text()).risulite_chats;if(!Array.isArray(a))throw 0;const c=cc();a.forEach(x=>{x.id=uid();(x.msgs||[]).forEach(m=>m.id=uid());c.chats.push(x);c.chat=x.id});save();render()}catch{toast(t('badf'))}}),
+ imenu:()=>modal(`<div class=bd><div class=mlist>${[['mnote',t('note')],['mmemo',t('t_memory')],['mregen',t('regen')]].map(([a,l])=>`<button data-a=${a}>${l}</button>`).join('')}</div></div>`),
+ mset:()=>settings(),mnote:()=>{closeM();act.note()},mmemo:()=>{closeM();act.memo()},
+ mregen:()=>{closeM();const m=ch(cc())?.msgs.at(-1);if(m&&m.role=='char'&&!abort)act.regen();else toast(t('badf'))}});
+document.addEventListener('click',e=>{const a=e.target.closest('[data-a]');if(a&&act[a.dataset.a])act[a.dataset.a](a.dataset.id)});
+render();
+try{navigator.storage?.persist?.()}catch{}
+addEventListener('pagehide',save);document.addEventListener('visibilitychange',()=>{if(document.hidden)save()});
+</script></body></html>
