@@ -302,24 +302,26 @@ var rmenu=false;Object.assign(act,{
  imenu:()=>modal(`<div class=bd><div class=mlist>${[['mnote',t('note')],['mmemo',t('t_memory')],['mregen',t('regen')]].map(([a,l])=>`<button data-a=${a}>${l}</button>`).join('')}</div></div>`),
  mset:()=>settings(),mnote:()=>{closeM();act.note()},mmemo:()=>{closeM();act.memo()},
  mregen:()=>{closeM();const m=ch(cc())?.msgs.at(-1);if(m&&m.role=='char'&&!abort)act.regen();else toast(t('badf'))}});
-/* ---- dino game (shown while waiting for the AI) ---- */
+/* ---- dino game (shown while waiting for the AI) — EASY MODE ---- */
 Object.assign(T,{dgen:['생성 중','Generating'],dfin:['완료','Done'],dsec:['초','s']});
-const D={on:false,st:'idle',t0:0,tf:0,end:0,tok:0,out:null,hi:0,score:0,raf:0,y:0,vy:0,obs:[],sp:5,fr:0,tm:0,model:'',cv:null,cx:null,W:300};
+/* 난이도 설정: 점프 높게 / 속도 느리게 / 장애물 작고 간격 넓게 */
+const EZ={jump:6.4,grav:.205,sp0:2.8,spMax:4.6,spGrow:300,hMin:12,hVar:12,wMin:8,wVar:12,gapBase:170,gapSp:50,gapVar:150,hitL:36,hitR:46,hitForgive:8};
+const D={on:false,st:'idle',t0:0,tf:0,end:0,tok:0,out:null,hi:0,score:0,raf:0,y:0,vy:0,obs:[],sp:EZ.sp0,fr:0,tm:0,model:'',cv:null,cx:null,W:300};
 try{D.hi=+localStorage.risudino||0}catch{}
 const dcol=()=>getComputedStyle(document.documentElement).getPropertyValue('--tx').trim()||'#e6e8f2';
-function dinoStart(){D.on=true;D.st='idle';D.score=0;D.y=0;D.vy=0;D.obs=[];D.sp=5;D.fr=0;D.t0=performance.now();D.tf=0;D.end=0;D.tok=0;D.out=null;D.model=S.model;try{document.activeElement.blur()}catch{}cancelAnimationFrame(D.raf);dinoMount();clearInterval(D.tm);D.tm=setInterval(dinoStat,100)}
+function dinoStart(){D.on=true;D.st='idle';D.score=0;D.y=0;D.vy=0;D.obs=[];D.sp=EZ.sp0;D.fr=0;D.t0=performance.now();D.tf=0;D.end=0;D.tok=0;D.out=null;D.model=S.model;try{document.activeElement.blur()}catch{}cancelAnimationFrame(D.raf);dinoMount();clearInterval(D.tm);D.tm=setInterval(dinoStat,100)}
 function dinoHide(){D.on=false;clearInterval(D.tm);cancelAnimationFrame(D.raf);const b=$('#dino');if(b)b.innerHTML=''}
 function dinoTok(s){if(!D.on)return;if(!D.tf)D.tf=performance.now();D.tok=tokEst(s)}
 function dinoEnd(text,u){if(!D.on)return;D.end=performance.now();D.out=u&&!u.est&&u.out?u.out:tokEst(text);clearInterval(D.tm);cancelAnimationFrame(D.raf);D.st='done';const s=Math.floor(D.score);if(s>D.hi){D.hi=s;try{localStorage.risudino=s}catch{}}dinoStat();dinoDraw()}
 function dinoStat(){const e=$('#dst');if(!e||!D.on)return;const fin=D.out!=null,now=fin?D.end:performance.now(),el=(now-D.t0)/1000,gt=D.tf?(now-D.tf)/1000:0,tk=fin?D.out:D.tok,base=gt>.05?gt:el;
  e.innerHTML=`<div>${esc(D.model)}</div><div class=note>${fin?t('dfin'):t('dgen')} · ${tk} ${t('tok')}</div><div>${el.toFixed(1)}${t('dsec')} (${gt.toFixed(1)}${t('dsec')}) · ${tk&&base>0?Math.round(tk/base)+' t/s':'– t/s'}</div>`}
 function dinoMount(){const b=$('#dino');if(!b)return;if(!D.on){b.innerHTML='';return}b.innerHTML=`<div class=dn><canvas id=dcv height=150></canvas><div class=dst id=dst></div><button class=dx data-a=dx>✕</button></div>`;const cv=$('#dcv');cv.width=Math.max(280,b.clientWidth-26);D.cv=cv;D.cx=cv.getContext('2d');D.W=cv.width;cv.onpointerdown=e=>{e.preventDefault();dinoKey()};dinoStat();dinoDraw();if(D.st=='run')dinoLoop()}
-function dinoKey(){if(!D.on)return;if(D.st=='idle'||D.st=='over'){D.st='run';D.score=0;D.obs=[];D.sp=5;D.y=0;D.vy=0;D.fr=0;dinoLoop();return}if(D.st=='run'&&D.y==0)D.vy=6.2}
+function dinoKey(){if(!D.on)return;if(D.st=='idle'||D.st=='over'){D.st='run';D.score=0;D.obs=[];D.sp=EZ.sp0;D.y=0;D.vy=0;D.fr=0;dinoLoop();return}if(D.st=='run'&&D.y==0)D.vy=EZ.jump}
 function dinoLoop(){cancelAnimationFrame(D.raf);const f=()=>{if(!D.on||!D.cx||D.st!='run')return;dinoStep();dinoDraw();D.raf=requestAnimationFrame(f)};D.raf=requestAnimationFrame(f)}
-function dinoStep(){D.fr++;D.score+=D.sp/20;D.sp=Math.min(8,4+D.score/200);if(D.y>0||D.vy>0){D.y+=D.vy;D.vy-=.225;if(D.y<=0){D.y=0;D.vy=0}}
+function dinoStep(){D.fr++;D.score+=D.sp/20;D.sp=Math.min(EZ.spMax,EZ.sp0+D.score/EZ.spGrow);if(D.y>0||D.vy>0){D.y+=D.vy;D.vy-=EZ.grav;if(D.y<=0){D.y=0;D.vy=0}}
  for(const o of D.obs)o.x-=D.sp;D.obs=D.obs.filter(o=>o.x+o.w>-10);
- const last=D.obs.at(-1);if(!last||D.W-last.x>last.gap)D.obs.push({x:D.W+10,w:10+(Math.random()*16|0),h:18+(Math.random()*16|0),gap:120+D.sp*50+Math.random()*150});
- for(const o of D.obs)if(o.x<50&&o.x+o.w>34&&D.y<o.h-4){D.st='over';D.hi=Math.max(D.hi,Math.floor(D.score));try{localStorage.risudino=D.hi}catch{}}}
+ const last=D.obs.at(-1);if(!last||D.W-last.x>last.gap)D.obs.push({x:D.W+10,w:EZ.wMin+(Math.random()*EZ.wVar|0),h:EZ.hMin+(Math.random()*EZ.hVar|0),gap:EZ.gapBase+D.sp*EZ.gapSp+Math.random()*EZ.gapVar});
+ for(const o of D.obs)if(o.x<EZ.hitR&&o.x+o.w>EZ.hitL&&D.y<o.h-EZ.hitForgive){D.st='over';D.hi=Math.max(D.hi,Math.floor(D.score));try{localStorage.risudino=D.hi}catch{}}}
 function dinoSprite(c,x,y,dead){const f=D.st=='run'&&D.y==0&&(D.fr>>3)%2;c.fillRect(x,y-16,6,5);c.fillRect(x+4,y-20,16,13);c.fillRect(x+14,y-31,14,11);c.fillRect(x+6,y-7,4,f?4:7);c.fillRect(x+14,y-7,4,f?7:4);c.fillRect(x+20,y-12,5,2);c.clearRect(x+22,y-29,2,2);if(dead)c.clearRect(x+21,y-30,4,4)}
 function dinoDraw(){const c=D.cx;if(!c)return;const W=D.W,G=132,col=dcol();c.clearRect(0,0,W,150);c.fillStyle=col;c.globalAlpha=.85;c.fillRect(0,G,W,1);dinoSprite(c,30,G-D.y,D.st=='over');
  D.obs.forEach(o=>{c.fillRect(o.x,G-o.h,o.w,o.h);c.fillRect(o.x-4,G-o.h*.6,4,5);c.fillRect(o.x+o.w,G-o.h*.75,4,5)});
