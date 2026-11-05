@@ -57,6 +57,7 @@ aside{width:340px;border-right:0}.seg2{display:flex;border:1px solid var(--bd);b
 .m .t{margin-top:6px;line-height:1.7}.mm{text-align:right;color:var(--mut);font-size:.85em;margin-top:6px}.mm span{cursor:pointer}.mm span:hover{color:var(--tx)}
 .tkb{height:4px;background:var(--bd);border-radius:2px;overflow:hidden;margin:10px 0}.tkb i{display:block;height:100%;background:#2979ff}.tr{display:flex;justify-content:space-between;gap:10px;padding:6px 0}
 @keyframes spin{to{transform:rotate(360deg)}}.spin{display:inline-grid;animation:spin .9s linear infinite}.mact button.dis{opacity:.3;pointer-events:none}
+#dino:empty{display:none}.dn{position:relative;margin:0 12px 8px;border:1px solid var(--bd);border-radius:8px;background:var(--bg2);overflow:hidden}.dn canvas{display:block;width:100%;height:110px;touch-action:manipulation;cursor:pointer}.dst{position:absolute;top:8px;right:8px;background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:6px 28px 6px 10px;font-size:.78em;line-height:1.5;pointer-events:none;opacity:.95}.dst .note{margin:0}.dx{position:absolute;top:10px;right:12px;border:0;background:none;padding:2px 4px;color:var(--tx);font-size:14px;line-height:1}
 </style></head><body><div id="app"><nav id="rail"></nav><aside id="side"></aside><main id="main"></main></div><div id="modal"></div><input type="file" id="fi" hidden>
 <script>
 const T={
@@ -169,10 +170,10 @@ async function callLLM(sg,onTok,signal){const key=getKey();if(!key)throw new Err
  const url=S.prov=='custom'?S.customUrl:PROV.find(p=>p.id==S.prov).u;if(!url)throw new Error('Custom URL?');const oa=S.prov=='openai';
  res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+key},body:JSON.stringify({model:S.model,messages:sg.map(m=>({role:m.role,content:m.text})),temperature:S.pOn.temp===false?undefined:S.temp,top_p:S.pOn.topP===false?undefined:S.topP,[oa?'max_completion_tokens':'max_tokens']:S.maxTok,stream:S.stream,stream_options:oa&&S.stream?{include_usage:true}:undefined}),signal});if(!res.ok)await fail(res);
  const us=j=>{if(j.usage)lastUse={in:j.usage.prompt_tokens||0,out:j.usage.completion_tokens||0}};if(S.stream)await sse(res,j=>{us(j);add(j.choices?.[0]?.delta?.content||'')});else{const j=await res.json();us(j);add(j.choices?.[0]?.message?.content||'')}return out}
-async function gen(re){const c=cc(),chat=ch(c);if(!c||!chat||abort)return;let m;if(re){m=chat.msgs.at(-1);if(!m||m.role!='char')return;m.alts=m.alts||[{text:m.text}];m.alts.push({text:''});m.i=m.alts.length-1;m.text=''}else{m={id:uid(),role:'char',text:'',alts:[{text:''}],i:0};chat.msgs.push(m)}const hist=chat.msgs.slice(0,chat.msgs.indexOf(m));abort=new AbortController();msgs();setSend();
- try{await callLLM(segs(c,{msgs:hist,note:chat.note||c.note,memory:chat.memory}),s=>{m.text=s;const e=$('#t'+m.id);if(e){e.innerHTML=md(s);$('#msgs').scrollTop=1e9}},abort.signal)}
+async function gen(re){const c=cc(),chat=ch(c);if(!c||!chat||abort)return;let m;if(re){m=chat.msgs.at(-1);if(!m||m.role!='char')return;m.alts=m.alts||[{text:m.text}];m.alts.push({text:''});m.i=m.alts.length-1;m.text=''}else{m={id:uid(),role:'char',text:'',alts:[{text:''}],i:0};chat.msgs.push(m)}const hist=chat.msgs.slice(0,chat.msgs.indexOf(m));abort=new AbortController();msgs();setSend();dinoStart();
+ try{await callLLM(segs(c,{msgs:hist,note:chat.note||c.note,memory:chat.memory}),s=>{m.text=s;dinoTok(s);const e=$('#t'+m.id);if(e){e.innerHTML=md(s);$('#msgs').scrollTop=1e9}},abort.signal)}
  catch(e){if(e.name!='AbortError')toast(/postMessage|could not be cloned/i.test(e.message)?t('sandbox'):e.message)}
- abort=null;if(lastUse&&lastUse.est)lastUse.out=tokEst(m.text);
+ abort=null;if(m.text.trim())dinoEnd(m.text,lastUse);else dinoHide();if(lastUse&&lastUse.est)lastUse.out=tokEst(m.text);
  if(!m.text.trim()){if(re&&m.alts.length>1){m.alts.pop();m.i=m.alts.length-1;m.text=m.alts[m.i].text}else chat.msgs=chat.msgs.filter(x=>x!==m)}
  else{const g=m.alts[m.i];g.text=m.text;g.model=S.model;g.prov=S.prov;g.usage=lastUse;g.ctx=S.ctxTok;g.time=Date.now();g.params={temp:S.temp,topP:S.topP,topK:S.topK,maxTok:S.maxTok,think:S.think}}
  lastUse=null;save();msgs();setSend()}
@@ -197,8 +198,8 @@ function render(){theme();const c=cc(),chat=ch(c),sd=$('#side');sd.classList.tog
  if(c&&(S.side||'chat')=='char'){bind(sd,c);if((S.ctab||'basic')=='lore')loreEd($('#lb'),c.lore);const ta=sd.querySelector('textarea.tall');if(ta){const u=()=>showTok(ta);u();ta.addEventListener('input',u)}}
  const el=$('#main'),tb=`<div class=tabbar><button class=bk data-a=menu>${ic('arrow')}</button><div class=tab><b>${esc(c?c.name:'RisuAI')}</b><small>${esc(chat?chat.name:'')}</small></div>${c?`<button class=pl data-a=newchat>＋</button>`:''}</div>`;
  if(!c){el.innerHTML=tb+`<div class=pg><div>${S.chars.length?`<div class=sg>${S.chars.map(x=>`<div class=mc data-a=pick data-id=${x.id} style="align-items:center;gap:10px">${avHtml(x)}<b style="flex:1">${esc(x.name)}</b></div>`).join('')}</div>`:`<div class=hint><p>${t('welcome')}</p></div>`}</div></div>`;return}
- el.innerHTML=tb+`<div id=msgs></div><div class=inp><textarea id=ta rows=1 placeholder="${t('ph')}"></textarea><button class=ib id=sb data-a=send></button><button class=ib data-a=imenu title="${t('settings')}">${ic('menu',22)}</button></div>`;msgs();setSend();
- $('#ta').onkeydown=e=>{if(e.key=='Enter'&&!e.shiftKey&&!matchMedia('(pointer:coarse)').matches){e.preventDefault();act.send()}};$('#ta').oninput=e=>{e.target.style.height='auto';e.target.style.height=Math.min(160,e.target.scrollHeight)+'px'}}
+ el.innerHTML=tb+`<div id=msgs></div><div id=dino></div><div class=inp><textarea id=ta rows=1 placeholder="${t('ph')}"></textarea><button class=ib id=sb data-a=send></button><button class=ib data-a=imenu title="${t('settings')}">${ic('menu',22)}</button></div>`;msgs();setSend();
+ dinoMount();$('#ta').onkeydown=e=>{if(e.key=='Enter'&&!e.shiftKey&&!matchMedia('(pointer:coarse)').matches){e.preventDefault();act.send()}};$('#ta').oninput=e=>{e.target.style.height='auto';e.target.style.height=Math.min(160,e.target.scrollHeight)+'px'}}
 I.loader='<path d="M21 12a9 9 0 1 1-6.2-8.55"/>';
 function setSend(){const b=$('#sb');if(!b)return;b.innerHTML=abort?`<span class=spin>${ic('loader',22)}</span>`:ic('send',22);b.title=abort?t('stop'):t('send')}
 I.arrowr='<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>';
@@ -301,6 +302,34 @@ var rmenu=false;Object.assign(act,{
  imenu:()=>modal(`<div class=bd><div class=mlist>${[['mnote',t('note')],['mmemo',t('t_memory')],['mregen',t('regen')]].map(([a,l])=>`<button data-a=${a}>${l}</button>`).join('')}</div></div>`),
  mset:()=>settings(),mnote:()=>{closeM();act.note()},mmemo:()=>{closeM();act.memo()},
  mregen:()=>{closeM();const m=ch(cc())?.msgs.at(-1);if(m&&m.role=='char'&&!abort)act.regen();else toast(t('badf'))}});
+/* ---- dino game (shown while waiting for the AI) ---- */
+Object.assign(T,{dgen:['생성 중','Generating'],dfin:['완료','Done'],dsec:['초','s']});
+const D={on:false,st:'idle',t0:0,tf:0,end:0,tok:0,out:null,hi:0,score:0,raf:0,y:0,vy:0,obs:[],sp:5,fr:0,tm:0,model:'',cv:null,cx:null,W:300};
+try{D.hi=+localStorage.risudino||0}catch{}
+const dcol=()=>getComputedStyle(document.documentElement).getPropertyValue('--tx').trim()||'#e6e8f2';
+function dinoStart(){D.on=true;D.st='idle';D.score=0;D.y=0;D.vy=0;D.obs=[];D.sp=5;D.fr=0;D.t0=performance.now();D.tf=0;D.end=0;D.tok=0;D.out=null;D.model=S.model;try{document.activeElement.blur()}catch{}cancelAnimationFrame(D.raf);dinoMount();clearInterval(D.tm);D.tm=setInterval(dinoStat,100)}
+function dinoHide(){D.on=false;clearInterval(D.tm);cancelAnimationFrame(D.raf);const b=$('#dino');if(b)b.innerHTML=''}
+function dinoTok(s){if(!D.on)return;if(!D.tf)D.tf=performance.now();D.tok=tokEst(s)}
+function dinoEnd(text,u){if(!D.on)return;D.end=performance.now();D.out=u&&!u.est&&u.out?u.out:tokEst(text);clearInterval(D.tm);cancelAnimationFrame(D.raf);D.st='done';const s=Math.floor(D.score);if(s>D.hi){D.hi=s;try{localStorage.risudino=s}catch{}}dinoStat();dinoDraw()}
+function dinoStat(){const e=$('#dst');if(!e||!D.on)return;const fin=D.out!=null,now=fin?D.end:performance.now(),el=(now-D.t0)/1000,gt=D.tf?(now-D.tf)/1000:0,tk=fin?D.out:D.tok,base=gt>.05?gt:el;
+ e.innerHTML=`<div>${esc(D.model)}</div><div class=note>${fin?t('dfin'):t('dgen')} · ${tk} ${t('tok')}</div><div>${el.toFixed(1)}${t('dsec')} (${gt.toFixed(1)}${t('dsec')}) · ${tk&&base>0?Math.round(tk/base)+' t/s':'– t/s'}</div>`}
+function dinoMount(){const b=$('#dino');if(!b)return;if(!D.on){b.innerHTML='';return}b.innerHTML=`<div class=dn><canvas id=dcv height=110></canvas><div class=dst id=dst></div><button class=dx data-a=dx>✕</button></div>`;const cv=$('#dcv');cv.width=Math.max(280,b.clientWidth-26);D.cv=cv;D.cx=cv.getContext('2d');D.W=cv.width;cv.onpointerdown=e=>{e.preventDefault();dinoKey()};dinoStat();dinoDraw();if(D.st=='run')dinoLoop()}
+function dinoKey(){if(!D.on)return;if(D.st=='idle'||D.st=='over'){D.st='run';D.score=0;D.obs=[];D.sp=5;D.y=0;D.vy=0;D.fr=0;dinoLoop();return}if(D.st=='run'&&D.y==0)D.vy=9}
+function dinoLoop(){cancelAnimationFrame(D.raf);const f=()=>{if(!D.on||!D.cx||D.st!='run')return;dinoStep();dinoDraw();D.raf=requestAnimationFrame(f)};D.raf=requestAnimationFrame(f)}
+function dinoStep(){D.fr++;D.score+=D.sp/20;D.sp=Math.min(12,5+D.score/150);if(D.y>0||D.vy>0){D.y+=D.vy;D.vy-=.65;if(D.y<=0){D.y=0;D.vy=0}}
+ for(const o of D.obs)o.x-=D.sp;D.obs=D.obs.filter(o=>o.x+o.w>-10);
+ const last=D.obs.at(-1);if(!last||D.W-last.x>last.gap)D.obs.push({x:D.W+10,w:10+(Math.random()*16|0),h:18+(Math.random()*16|0),gap:230+Math.random()*260});
+ for(const o of D.obs)if(o.x<50&&o.x+o.w>34&&D.y<o.h-4){D.st='over';D.hi=Math.max(D.hi,Math.floor(D.score));try{localStorage.risudino=D.hi}catch{}}}
+function dinoSprite(c,x,y,dead){const f=D.st=='run'&&D.y==0&&(D.fr>>3)%2;c.fillRect(x,y-16,6,5);c.fillRect(x+4,y-20,16,13);c.fillRect(x+14,y-31,14,11);c.fillRect(x+6,y-7,4,f?4:7);c.fillRect(x+14,y-7,4,f?7:4);c.fillRect(x+20,y-12,5,2);c.clearRect(x+22,y-29,2,2);if(dead)c.clearRect(x+21,y-30,4,4)}
+function dinoDraw(){const c=D.cx;if(!c)return;const W=D.W,G=92,col=dcol();c.clearRect(0,0,W,110);c.fillStyle=col;c.globalAlpha=.85;c.fillRect(0,G,W,1);dinoSprite(c,30,G-D.y,D.st=='over');
+ D.obs.forEach(o=>{c.fillRect(o.x,G-o.h,o.w,o.h);c.fillRect(o.x-4,G-o.h*.6,4,5);c.fillRect(o.x+o.w,G-o.h*.75,4,5)});
+ c.globalAlpha=.6;c.font='12px system-ui';c.textAlign='left';c.fillText('HI '+String(D.hi).padStart(5,'0')+'  '+String(Math.floor(D.score)).padStart(5,'0'),10,18);c.textAlign='center';c.globalAlpha=1;
+ if(D.st=='idle'){c.font='bold 13px system-ui';c.fillText('Tap or press Space to start',W/2,50);c.font='11px system-ui';c.globalAlpha=.6;c.fillText('Chrome Dino — play while waiting for the AI response',W/2,68)}
+ if(D.st=='over'){c.font='bold 14px system-ui';c.fillText('Game Over — tap to restart',W/2,50)}
+ if(D.st=='done'){c.fillStyle='#22c55e';c.font='bold 16px system-ui';c.fillText('AI response has arrived!',W/2,48);c.fillStyle=col;c.font='12px system-ui';c.fillText('Score: '+Math.floor(D.score)+' / HI: '+D.hi,W/2,70)}
+ c.globalAlpha=1}
+act.dx=dinoHide;
+addEventListener('keydown',e=>{if(!D.on||D.st=='done'||(e.code!='Space'&&e.code!='ArrowUp'))return;const tg=e.target.tagName;if(tg=='INPUT'||tg=='TEXTAREA'||tg=='SELECT')return;if(tg=='BUTTON')e.target.blur();e.preventDefault();dinoKey()});
 let cfmFn=null;
 function ask(msg,fn){cfmFn=fn;modal(`<div class=bd><p style="margin:6px 0 14px">${esc(msg)}</p><div class=row><button class=dng data-a=cfmy>${t('del')}</button><button data-a=cfmn>${t('cancel')}</button></div></div>`)}
 const modelName=g=>(MODS().find(x=>x.id==g.model&&(!g.prov||x.p==g.prov))||{}).name||g.model;
